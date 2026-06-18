@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    superclipboard_rs_lib::run()
+    superclipboard3_lib::run()
 }

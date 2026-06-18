@@ -148,7 +148,7 @@ function App() {
       {/* Title bar (draggable, frameless window) */}
       <div data-tauri-drag-region className="title-bar">
         <div data-tauri-drag-region className="title-content">
-          <span className="title-text">SuperClipboard.rs</span>
+          <span className="title-text">SuperClipboard3</span>
           <span className="shortcut-hint">Ctrl+Shift+V</span>
         </div>
       </div>

@@ -1,12 +1,12 @@
 [package]
-name = "superclipboard-rs"
+name = "superclipboard3"
 version = "0.1.0"
 description = "A lightweight clipboard manager with smart categorization"
 authors = [""]
 edition = "2021"
 
 [lib]
-name = "superclipboard_rs_lib"
+name = "superclipboard3_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
