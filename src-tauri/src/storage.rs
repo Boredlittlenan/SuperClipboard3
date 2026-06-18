@@ -70,6 +70,11 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_category ON clipboard_entries(category);
             CREATE INDEX IF NOT EXISTS idx_created_at ON clipboard_entries(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_hash ON clipboard_entries(hash);
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key     TEXT PRIMARY KEY,
+                value   TEXT NOT NULL
+            );
             ",
         )
     }
@@ -254,5 +259,29 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         let rows = conn.execute("DELETE FROM clipboard_entries WHERE pinned = 0", [])?;
         Ok(rows as u64)
+    }
+
+    /// Get a setting value by key; returns None if not set
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let value = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .ok();
+        Ok(value)
+    }
+
+    /// Insert or update a setting value
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<(), StorageError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
     }
 }

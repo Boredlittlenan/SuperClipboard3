@@ -1,4 +1,5 @@
 import type { Category, FilterTab } from './types';
+import type { Translations } from './i18n/translations';
 
 /** Category badge color map */
 const CATEGORY_COLORS: Record<Category, string> = {
@@ -10,49 +11,48 @@ const CATEGORY_COLORS: Record<Category, string> = {
   file_path: '#ef4444',
 };
 
-/** Human-readable category labels */
-const CATEGORY_LABELS: Record<Category, string> = {
-  text: 'Text',
-  link: 'Link',
-  image: 'Image',
-  code: 'Code',
-  email: 'Email',
-  file_path: 'Path',
-};
-
-const TAB_LABELS: Record<FilterTab, string> = {
-  all: 'All',
-  text: 'Text',
-  link: 'Link',
-  image: 'Image',
-  code: 'Code',
-  email: 'Email',
-  file_path: 'Path',
-};
-
 export function getCategoryColor(category: Category): string {
   return CATEGORY_COLORS[category] ?? '#6b7280';
 }
 
-export function getCategoryLabel(category: Category): string {
-  return CATEGORY_LABELS[category] ?? category;
+/** Get category label from translations */
+export function getCategoryLabel(category: Category, t: Translations): string {
+  const map: Record<Category, string> = {
+    text: t.tabText,
+    link: t.tabLink,
+    image: t.tabImage,
+    code: t.tabCode,
+    email: t.tabEmail,
+    file_path: t.tabPath,
+  };
+  return map[category] ?? category;
 }
 
-export function getTabLabel(tab: FilterTab): string {
-  return TAB_LABELS[tab] ?? tab;
+/** Get tab label from translations */
+export function getTabLabel(tab: FilterTab, t: Translations): string {
+  const map: Record<FilterTab, string> = {
+    all: t.tabAll,
+    text: t.tabText,
+    link: t.tabLink,
+    image: t.tabImage,
+    code: t.tabCode,
+    email: t.tabEmail,
+    file_path: t.tabPath,
+  };
+  return map[tab] ?? tab;
 }
 
-/** Format relative time string */
-export function formatRelativeTime(isoString: string): string {
+/** Format relative time string using translations */
+export function formatRelativeTime(isoString: string, t: Translations): string {
   const date = new Date(isoString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);
 
-  if (diffSec < 60) return 'just now';
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  if (diffSec < 604800) return `${Math.floor(diffSec / 86400)}d ago`;
+  if (diffSec < 60) return t.justNow;
+  if (diffSec < 3600) return t.minutesAgo(Math.floor(diffSec / 60));
+  if (diffSec < 86400) return t.hoursAgo(Math.floor(diffSec / 3600));
+  if (diffSec < 604800) return t.daysAgo(Math.floor(diffSec / 86400));
 
   return date.toLocaleDateString();
 }

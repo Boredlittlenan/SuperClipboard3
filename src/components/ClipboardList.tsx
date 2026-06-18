@@ -1,5 +1,6 @@
 import type { ClipboardEntry } from '../types';
 import ClipboardItem from './ClipboardItem';
+import { useI18n } from '../i18n';
 
 interface Props {
   entries: ClipboardEntry[];
@@ -16,11 +17,13 @@ export default function ClipboardList({
   onTogglePin,
   loading,
 }: Props) {
+  const { t } = useI18n();
+
   if (loading && entries.length === 0) {
     return (
       <div style={styles.empty}>
         <div style={styles.spinner} />
-        <span style={styles.emptyText}>Loading...</span>
+        <span style={styles.emptyText}>{t.loading}</span>
       </div>
     );
   }
@@ -29,8 +32,8 @@ export default function ClipboardList({
     return (
       <div style={styles.empty}>
         <div style={styles.emptyIcon}>{'\u{1F4CB}'}</div>
-        <span style={styles.emptyText}>No clipboard entries yet</span>
-        <span style={styles.emptyHint}>Copy something to get started</span>
+        <span style={styles.emptyText}>{t.noEntries}</span>
+        <span style={styles.emptyHint}>{t.noEntriesHint}</span>
       </div>
     );
   }

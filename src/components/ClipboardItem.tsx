@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ClipboardEntry } from '../types';
 import { getCategoryColor, getCategoryLabel, formatRelativeTime } from '../utils';
+import { useI18n } from '../i18n';
 
 interface Props {
   entry: ClipboardEntry;
@@ -11,6 +12,7 @@ interface Props {
 
 export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin }: Props) {
   const [hovered, setHovered] = useState(false);
+  const { t } = useI18n();
 
   const categoryColor = getCategoryColor(entry.category);
   const isImage = entry.category === 'image';
@@ -24,7 +26,7 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin }: 
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => onCopy(entry.id)}
-      title="Click to copy"
+      title={t.clickToCopy}
     >
       {/* Category indicator */}
       <div style={{ ...styles.categoryBar, background: categoryColor }} />
@@ -39,10 +41,10 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin }: 
               color: categoryColor,
             }}
           >
-            {getCategoryLabel(entry.category)}
+            {getCategoryLabel(entry.category, t)}
           </span>
           <div style={styles.headerRight}>
-            <span style={styles.time}>{formatRelativeTime(entry.created_at)}</span>
+            <span style={styles.time}>{formatRelativeTime(entry.created_at, t)}</span>
             {entry.pinned && <span style={styles.pinBadge}>&#x1F4CC;</span>}
           </div>
         </div>
@@ -71,7 +73,7 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin }: 
                 e.stopPropagation();
                 onTogglePin(entry.id);
               }}
-              title={entry.pinned ? 'Unpin' : 'Pin'}
+              title={entry.pinned ? t.unpin : t.pin}
             >
               {entry.pinned ? '\u2716' : '\u2605'}
             </button>
@@ -81,7 +83,7 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin }: 
                 e.stopPropagation();
                 onDelete(entry.id);
               }}
-              title="Delete"
+              title={t.delete}
             >
               &#x2715;
             </button>

@@ -1,6 +1,6 @@
 {
   "productName": "SuperClipboard3",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.superclipboard3.app",
   "build": {
     "beforeDevCommand": "pnpm dev",

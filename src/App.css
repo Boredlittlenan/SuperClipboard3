@@ -203,6 +203,11 @@
   }
 }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* ─── Tauri Drag Regions ─── */
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
@@ -211,4 +216,10 @@
 [data-tauri-drag-region] button,
 [data-tauri-drag-region] input {
   -webkit-app-region: no-drag;
+}
+
+/* ─── Settings Gear Button ─── */
+.settings-gear-btn:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-primary) !important;
 }

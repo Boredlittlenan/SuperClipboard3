@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { FilterTab, Stats } from '../types';
 import { getTabLabel } from '../utils';
+import { useI18n } from '../i18n';
 
 const TABS: FilterTab[] = ['all', 'text', 'link', 'image', 'code', 'email', 'file_path'];
 
@@ -11,6 +12,8 @@ interface Props {
 }
 
 export default function CategoryTabs({ activeTab, onTabChange, stats }: Props) {
+  const { t } = useI18n();
+
   const getCount = useCallback(
     (tab: FilterTab): number | null => {
       if (!stats) return null;
@@ -45,7 +48,7 @@ export default function CategoryTabs({ activeTab, onTabChange, stats }: Props) {
                 }
               }}
             >
-              <span style={styles.tabLabel}>{getTabLabel(tab)}</span>
+              <span style={styles.tabLabel}>{getTabLabel(tab, t)}</span>
               {count !== null && count > 0 && (
                 <span
                   style={{

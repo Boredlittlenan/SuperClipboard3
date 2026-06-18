@@ -9,18 +9,28 @@ import {
   copyToClipboard,
   onClipboardChanged,
 } from './api/clipboard';
+import { getShortcut } from './api/settings';
+import { I18nProvider, useI18n } from './i18n';
 import CategoryTabs from './components/CategoryTabs';
 import ClipboardList from './components/ClipboardList';
+import SettingsButton from './components/SettingsButton';
 import './App.css';
 
-function App() {
+function AppContent() {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<ClipboardEntry[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<number | null>(null);
+  const [currentShortcut, setCurrentShortcut] = useState('Ctrl+Shift+V');
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Fetch current shortcut on mount
+  useEffect(() => {
+    getShortcut().then(setCurrentShortcut).catch(console.error);
+  }, []);
 
   // Fetch entries based on current filter
   const fetchEntries = useCallback(async () => {
@@ -122,7 +132,7 @@ function App() {
   );
 
   const handleClear = useCallback(async () => {
-    if (!confirm('Clear all non-pinned entries?')) return;
+    if (!confirm(t.clearConfirm)) return;
     try {
       await clearUnpinned();
       fetchEntries();
@@ -130,7 +140,7 @@ function App() {
     } catch (err) {
       console.error('Failed to clear:', err);
     }
-  }, [fetchEntries, fetchStats]);
+  }, [fetchEntries, fetchStats, t]);
 
   // Debounced search
   const [searchInput, setSearchInput] = useState('');
@@ -148,8 +158,11 @@ function App() {
       {/* Title bar (draggable, frameless window) */}
       <div data-tauri-drag-region className="title-bar">
         <div data-tauri-drag-region className="title-content">
-          <span className="title-text">SuperClipboard3</span>
-          <span className="shortcut-hint">Ctrl+Shift+V</span>
+          <span className="title-text">{t.appTitle}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="shortcut-hint">{currentShortcut}</span>
+            <SettingsButton onShortcutChange={setCurrentShortcut} />
+          </div>
         </div>
       </div>
 
@@ -159,7 +172,7 @@ function App() {
         <input
           ref={searchRef}
           type="text"
-          placeholder="Search clipboard..."
+          placeholder={t.searchPlaceholder}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           className="search-input"
@@ -168,7 +181,7 @@ function App() {
           <button
             className="clear-search-btn"
             onClick={() => setSearchInput('')}
-            title="Clear search"
+            title={t.clearSearch}
           >
             &#x2715;
           </button>
@@ -190,22 +203,30 @@ function App() {
       {/* Footer bar */}
       <div className="footer-bar">
         <span className="footer-text">
-          {entries.length} item{entries.length !== 1 ? 's' : ''}
+          {t.itemsCount(entries.length)}
         </span>
         <button
           className="clear-btn"
           onClick={handleClear}
-          title="Clear non-pinned entries"
+          title={t.clearHistory}
         >
-          Clear History
+          {t.clearHistory}
         </button>
       </div>
 
       {/* Copied toast */}
       {copied !== null && (
-        <div className="toast">Copied!</div>
+        <div className="toast">{t.copied}</div>
       )}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
   );
 }
 
