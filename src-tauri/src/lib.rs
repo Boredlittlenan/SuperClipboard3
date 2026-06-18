@@ -194,6 +194,12 @@ fn set_shortcut(
     Ok(new_shortcut)
 }
 
+/// Open a URL in the system default browser
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
+}
+
 /// Check for updates from GitHub Releases
 #[tauri::command]
 async fn check_update() -> Result<UpdateInfo, String> {
@@ -387,6 +393,7 @@ pub fn run() {
             get_shortcut,
             set_shortcut,
             check_update,
+            open_url,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running tauri application");

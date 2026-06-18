@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import type { Locale } from '../i18n/translations';
-import { getAutostartEnabled, setAutostartEnabled, getShortcut, setShortcut, checkUpdate } from '../api/settings';
+import { getAutostartEnabled, setAutostartEnabled, getShortcut, setShortcut, checkUpdate, openUrl } from '../api/settings';
 import type { UpdateInfo } from '../api/settings';
-import { open } from '@tauri-apps/plugin-shell';
 import { listen } from '@tauri-apps/api/event';
 
 const LANGUAGES: { value: Locale; labelKey: 'langZhCN' | 'langEn' }[] = [
@@ -173,7 +172,7 @@ export default function SettingsButton({ onShortcutChange }: SettingsButtonProps
 
   const handleDownload = useCallback(() => {
     if (updateInfo?.downloadUrl) {
-      open(updateInfo.downloadUrl);
+      openUrl(updateInfo.downloadUrl);
     }
   }, [updateInfo]);
 

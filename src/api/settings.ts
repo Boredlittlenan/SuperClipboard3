@@ -41,3 +41,8 @@ export interface UpdateInfo {
 export async function checkUpdate(): Promise<UpdateInfo> {
   return invoke('check_update');
 }
+
+/** Open a URL in the system default browser */
+export async function openUrl(url: string): Promise<void> {
+  return invoke('open_url', { url });
+}
