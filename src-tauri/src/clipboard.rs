@@ -168,16 +168,20 @@ fn generate_preview(text: &str, category: &Category) -> String {
         Category::Image => "[Image]".to_string(),
         Category::Code => {
             let first_line = text.lines().next().unwrap_or("");
-            if first_line.len() > 80 {
-                format!("{}...", &first_line[..80])
+            let char_count = first_line.chars().count();
+            if char_count > 80 {
+                let truncated: String = first_line.chars().take(80).collect();
+                format!("{}...", truncated)
             } else {
                 first_line.to_string()
             }
         }
         Category::Text => {
             let clean = text.replace('\n', " ").replace('\r', "");
-            if clean.len() > 120 {
-                format!("{}...", &clean[..120])
+            let char_count = clean.chars().count();
+            if char_count > 120 {
+                let truncated: String = clean.chars().take(120).collect();
+                format!("{}...", truncated)
             } else {
                 clean
             }
