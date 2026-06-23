@@ -16,9 +16,12 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
   const [editBody, setEditBody] = useState('');
   const [editTags, setEditTags] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+
   const editorRef = useRef<HTMLDivElement>(null);
   const editingIdRef = useRef<number | null>(null);
   editingIdRef.current = editingId;
+  // Prevents stale async fetches from overwriting a newer editor selection
+  const clickSeqRef = useRef(0);
 
   const fetchMemos = useCallback(async () => {
     try {
@@ -35,7 +38,7 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     fetchMemos();
   }, [fetchMemos]);
 
-  // Read values directly from DOM — always fresh, never stale
+  // Read values directly from DOM — always fresh
   const readEditorValues = () => {
     if (!editorRef.current) return { title: editTitle, body: editBody, tags: editTags };
     const inputs = editorRef.current.querySelectorAll('input');
@@ -47,7 +50,7 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     };
   };
 
-  // Instant save — fire on every keystroke, no debounce
+  // Instant save — fires on every keystroke
   const saveNow = useCallback(async () => {
     const id = editingIdRef.current;
     if (id === null) return;
@@ -60,15 +63,51 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const switchTo = (memo: Memo) => {
-    setIsCreating(false);
-    setEditingId(memo.id);
-    setEditTitle(memo.title);
-    setEditBody(memo.body);
-    setEditTags(memo.tags);
+  // Switch editor to a memo, ALWAYS loading fresh data from DB
+  const handleMemoClick = async (memo: Memo) => {
+    if (editingIdRef.current === memo.id) return;
+
+    // 1. Save current memo's latest DOM values
+    if (editingIdRef.current !== null) {
+      const id = editingIdRef.current;
+      const vals = readEditorValues();
+      await updateMemo(id, vals.title, vals.body, vals.tags).catch(console.error);
+    }
+
+    // 2. Fetch fresh list from DB — this is the key fix:
+    //    we always read from DB, never from the stale in-memory array
+    const seq = ++clickSeqRef.current;
+    try {
+      const filter = searchQuery.trim()
+        ? { search: searchQuery.trim(), limit: 100 }
+        : { limit: 100 };
+      const freshList = await getMemos(filter);
+      setMemos(freshList);
+
+      // Only apply editor if this is still the latest click
+      if (clickSeqRef.current === seq) {
+        const fresh = freshList.find(m => m.id === memo.id);
+        if (fresh) {
+          setIsCreating(false);
+          setEditingId(fresh.id);
+          setEditTitle(fresh.title);
+          setEditBody(fresh.body);
+          setEditTags(fresh.tags);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch memos:', err);
+    }
   };
 
   const handleCreate = () => {
+    // Save current editing memo first
+    if (editingIdRef.current !== null) {
+      const id = editingIdRef.current;
+      const vals = readEditorValues();
+      updateMemo(id, vals.title, vals.body, vals.tags).catch(console.error);
+    }
+    ++clickSeqRef.current; // invalidate any pending fetch
     setIsCreating(true);
     setEditingId(null);
     setEditTitle('');
@@ -94,18 +133,6 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     }
   };
 
-  // Click another memo → just switch. Data is already saved from last keystroke.
-  const handleMemoClick = (memo: Memo) => {
-    if (editingIdRef.current === memo.id) return;
-    // Save one final time synchronously before switching (in case last keystroke save is still in-flight)
-    if (editingIdRef.current !== null) {
-      const id = editingIdRef.current;
-      const { title, body, tags } = readEditorValues();
-      updateMemo(id, title, body, tags).catch(console.error);
-    }
-    switchTo(memo);
-  };
-
   const handleDelete = async (id: number) => {
     try {
       await deleteMemo(id);
@@ -128,11 +155,12 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     }
   };
 
-  // onChange handler: update React state AND save immediately
-  const onFieldChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setter(e.target.value);
-    saveNow();
-  };
+  // onChange: update React state for controlled inputs + save to DB immediately
+  const onFieldChange = (setter: (v: string) => void) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setter(e.target.value);
+      saveNow();
+    };
 
   const editor = (isCreating || editingId !== null) ? (
     <div ref={editorRef} style={styles.editor}>
