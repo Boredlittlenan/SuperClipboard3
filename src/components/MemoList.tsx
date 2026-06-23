@@ -16,7 +16,9 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
   const [editBody, setEditBody] = useState('');
   const [editTags, setEditTags] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const editingIdRef = useRef<number | null>(null);
+  editingIdRef.current = editingId;
 
   const fetchMemos = useCallback(async () => {
     try {
@@ -33,30 +35,40 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     fetchMemos();
   }, [fetchMemos]);
 
-  // Auto-save while editing
-  useEffect(() => {
-    if (editingId === null) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      try {
-        await updateMemo(editingId, editTitle, editBody, editTags);
-      } catch (err) {
-        console.error('Failed to save memo:', err);
-      }
-    }, 500);
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [editTitle, editBody, editTags, editingId]);
+  // Read values directly from DOM — always fresh, never stale
+  const readEditorValues = () => {
+    if (!editorRef.current) return { title: editTitle, body: editBody, tags: editTags };
+    const inputs = editorRef.current.querySelectorAll('input');
+    const textarea = editorRef.current.querySelector('textarea');
+    return {
+      title: inputs[0]?.value ?? '',
+      body: textarea?.value ?? '',
+      tags: inputs[1]?.value ?? '',
+    };
+  };
 
-  const handleCreate = async () => {
-    // Save current editing memo before creating new
-    if (editingId !== null) {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      try {
-        await updateMemo(editingId, editTitle, editBody, editTags);
-      } catch (err) {
-        console.error('Failed to save memo before create:', err);
-      }
+  // Instant save — fire on every keystroke, no debounce
+  const saveNow = useCallback(async () => {
+    const id = editingIdRef.current;
+    if (id === null) return;
+    const { title, body, tags } = readEditorValues();
+    try {
+      await updateMemo(id, title, body, tags);
+    } catch (err) {
+      console.error('Failed to save memo:', err);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const switchTo = (memo: Memo) => {
+    setIsCreating(false);
+    setEditingId(memo.id);
+    setEditTitle(memo.title);
+    setEditBody(memo.body);
+    setEditTags(memo.tags);
+  };
+
+  const handleCreate = () => {
     setIsCreating(true);
     setEditingId(null);
     setEditTitle('');
@@ -65,12 +77,13 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
   };
 
   const handleSaveNew = async () => {
-    if (!editTitle.trim() && !editBody.trim()) {
+    const { title, body, tags } = readEditorValues();
+    if (!title.trim() && !body.trim()) {
       setIsCreating(false);
       return;
     }
     try {
-      await createMemo(editTitle.trim(), editBody.trim(), editTags.trim());
+      await createMemo(title.trim(), body.trim(), tags.trim());
       setIsCreating(false);
       setEditTitle('');
       setEditBody('');
@@ -81,27 +94,22 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     }
   };
 
-  const handleEdit = async (memo: Memo) => {
-    // Save current editing memo before switching
-    if (editingId !== null) {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      try {
-        await updateMemo(editingId, editTitle, editBody, editTags);
-      } catch (err) {
-        console.error('Failed to save memo before switch:', err);
-      }
+  // Click another memo → just switch. Data is already saved from last keystroke.
+  const handleMemoClick = (memo: Memo) => {
+    if (editingIdRef.current === memo.id) return;
+    // Save one final time synchronously before switching (in case last keystroke save is still in-flight)
+    if (editingIdRef.current !== null) {
+      const id = editingIdRef.current;
+      const { title, body, tags } = readEditorValues();
+      updateMemo(id, title, body, tags).catch(console.error);
     }
-    setIsCreating(false);
-    setEditingId(memo.id);
-    setEditTitle(memo.title);
-    setEditBody(memo.body);
-    setEditTags(memo.tags);
+    switchTo(memo);
   };
 
   const handleDelete = async (id: number) => {
     try {
       await deleteMemo(id);
-      if (editingId === id) {
+      if (editingIdRef.current === id) {
         setEditingId(null);
         setIsCreating(false);
       }
@@ -120,14 +128,19 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     }
   };
 
-  // Editor for creating or editing
+  // onChange handler: update React state AND save immediately
+  const onFieldChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setter(e.target.value);
+    saveNow();
+  };
+
   const editor = (isCreating || editingId !== null) ? (
-    <div style={styles.editor}>
+    <div ref={editorRef} style={styles.editor}>
       <input
         style={styles.editorTitle}
         placeholder={t.memoTitlePlaceholder}
         value={editTitle}
-        onChange={(e) => setEditTitle(e.target.value)}
+        onChange={onFieldChange(setEditTitle)}
         onBlur={() => { if (isCreating) handleSaveNew(); }}
         autoFocus
       />
@@ -135,7 +148,7 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
         style={styles.editorBody}
         placeholder={t.memoBodyPlaceholder}
         value={editBody}
-        onChange={(e) => setEditBody(e.target.value)}
+        onChange={onFieldChange(setEditBody)}
         onBlur={() => { if (isCreating) handleSaveNew(); }}
         rows={4}
       />
@@ -143,13 +156,12 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
         style={styles.editorTags}
         placeholder={t.memoTagsPlaceholder}
         value={editTags}
-        onChange={(e) => setEditTags(e.target.value)}
+        onChange={onFieldChange(setEditTags)}
         onBlur={() => { if (isCreating) handleSaveNew(); }}
       />
     </div>
   ) : null;
 
-  // Empty state
   if (memos.length === 0 && !isCreating) {
     return (
       <div style={styles.container}>
@@ -181,7 +193,7 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
               ...(editingId === memo.id ? styles.memoItemActive : {}),
               borderLeft: memo.pinned ? '3px solid #8b5cf6' : '3px solid transparent',
             }}
-            onClick={() => handleEdit(memo)}
+            onClick={() => handleMemoClick(memo)}
           >
             <div style={styles.memoContent}>
               <div style={styles.memoHeader}>
