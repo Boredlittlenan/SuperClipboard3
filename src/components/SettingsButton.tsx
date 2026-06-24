@@ -245,12 +245,15 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
 
       {/* Settings dropdown panel */}
       {open && (
-        <div style={{ ...styles.panel, width: '240px' }}>
-          <div style={styles.panelTitle}>{t.settings}</div>
+        <div style={{ ...styles.panel, width: '220px' }}>
+          {/* Title row with version */}
+          <div style={styles.panelTitle}>
+            <span>{t.settings}</span>
+            {appVersion && <span style={styles.versionBadge}>v{appVersion}</span>}
+          </div>
 
           {/* Language section */}
           <div style={styles.section}>
-            <label style={styles.label}>{t.language}</label>
             <div style={styles.langOptions}>
               {LANGUAGES.map(({ value, labelKey }) => (
                 <button
@@ -268,120 +271,76 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
           </div>
 
           {/* Shortcut section */}
-          <div style={{ ...styles.section, marginTop: '12px' }}>
-            <label style={styles.label}>{t.shortcut}</label>
-            <div style={styles.toggleRow}>
-              <span style={styles.toggleLabel}>{t.shortcutDesc}</span>
-              <button
-                ref={recorderRef}
-                style={{
-                  ...styles.shortcutBtn,
-                  ...(recording ? styles.shortcutBtnRecording : {}),
-                  ...(error ? styles.shortcutBtnError : {}),
-                }}
-                onClick={() => {
-                  if (!recording) {
-                    setError('');
-                    setRecording(true);
-                  }
-                }}
-              >
-                {recording ? t.shortcutRecording : shortcut}
-              </button>
-            </div>
-            {error && <span style={styles.errorText}>{error}</span>}
+          <div style={styles.compactRow} title={t.shortcutDesc}>
+            <span style={styles.rowLabel}>{t.shortcut}</span>
+            <button
+              ref={recorderRef}
+              style={{
+                ...styles.shortcutBtn,
+                ...(recording ? styles.shortcutBtnRecording : {}),
+                ...(error ? styles.shortcutBtnError : {}),
+              }}
+              onClick={() => {
+                if (!recording) {
+                  setError('');
+                  setRecording(true);
+                }
+              }}
+            >
+              {recording ? t.shortcutRecording : shortcut}
+            </button>
+          </div>
+          {error && <span style={styles.errorText}>{error}</span>}
+
+          {/* Autostart */}
+          <div style={styles.compactRow} title={t.autostartDesc}>
+            <span style={styles.rowLabel}>{t.autostart}</span>
+            <button
+              style={{ ...styles.toggle, ...(autostart ? styles.toggleOn : {}) }}
+              onClick={handleAutostartToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(autostart ? styles.toggleKnobOn : {}) }} />
+            </button>
           </div>
 
-          {/* Autostart section */}
-          <div style={{ ...styles.section, marginTop: '12px' }}>
-            <label style={styles.label}>{t.autostart}</label>
-            <div style={styles.toggleRow}>
-              <span style={styles.toggleLabel}>{t.autostartDesc}</span>
-              <button
-                style={{
-                  ...styles.toggle,
-                  ...(autostart ? styles.toggleOn : {}),
-                }}
-                onClick={handleAutostartToggle}
-              >
-                <div
-                  style={{
-                    ...styles.toggleKnob,
-                    ...(autostart ? styles.toggleKnobOn : {}),
-                  }}
-                />
-              </button>
-            </div>
+          {/* Memo */}
+          <div style={styles.compactRow} title={t.memoSettingDesc}>
+            <span style={styles.rowLabel}>{t.memoSetting}</span>
+            <button
+              style={{ ...styles.toggle, ...(memoEnabled ? styles.toggleOn : {}) }}
+              onClick={handleMemoToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(memoEnabled ? styles.toggleKnobOn : {}) }} />
+            </button>
           </div>
 
-          {/* Memo section */}
-          <div style={{ ...styles.section, marginTop: '12px' }}>
-            <label style={styles.label}>{t.memoSetting}</label>
-            <div style={styles.toggleRow}>
-              <span style={styles.toggleLabel}>{t.memoSettingDesc}</span>
-              <button
-                style={{
-                  ...styles.toggle,
-                  ...(memoEnabled ? styles.toggleOn : {}),
-                }}
-                onClick={handleMemoToggle}
-              >
-                <div
-                  style={{
-                    ...styles.toggleKnob,
-                    ...(memoEnabled ? styles.toggleKnobOn : {}),
-                  }}
-                />
-              </button>
-            </div>
+          {/* Always on top */}
+          <div style={styles.compactRow} title={t.alwaysOnTopDesc}>
+            <span style={styles.rowLabel}>{t.alwaysOnTop}</span>
+            <button
+              style={{ ...styles.toggle, ...(alwaysOnTop ? styles.toggleOn : {}) }}
+              onClick={handleAlwaysOnTopToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(alwaysOnTop ? styles.toggleKnobOn : {}) }} />
+            </button>
           </div>
 
-          {/* Always on top section */}
-          <div style={{ ...styles.section, marginTop: '12px' }}>
-            <label style={styles.label}>{t.alwaysOnTop}</label>
-            <div style={styles.toggleRow}>
-              <span style={styles.toggleLabel}>{t.alwaysOnTopDesc}</span>
-              <button
-                style={{
-                  ...styles.toggle,
-                  ...(alwaysOnTop ? styles.toggleOn : {}),
-                }}
-                onClick={handleAlwaysOnTopToggle}
-              >
-                <div
-                  style={{
-                    ...styles.toggleKnob,
-                    ...(alwaysOnTop ? styles.toggleKnobOn : {}),
-                  }}
-                />
-              </button>
-            </div>
+          {/* Raw preview */}
+          <div style={styles.compactRow} title={t.rawPreviewDesc}>
+            <span style={styles.rowLabel}>{t.rawPreview}</span>
+            <button
+              style={{ ...styles.toggle, ...(rawPreview ? styles.toggleOn : {}) }}
+              onClick={handleRawPreviewToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(rawPreview ? styles.toggleKnobOn : {}) }} />
+            </button>
           </div>
 
-          {/* Raw preview section */}
-          <div style={{ ...styles.section, marginTop: '12px' }}>
-            <label style={styles.label}>{t.rawPreview}</label>
-            <div style={styles.toggleRow}>
-              <span style={styles.toggleLabel}>{t.rawPreviewDesc}</span>
-              <button
-                style={{
-                  ...styles.toggle,
-                  ...(rawPreview ? styles.toggleOn : {}),
-                }}
-                onClick={handleRawPreviewToggle}
-              >
-                <div
-                  style={{
-                    ...styles.toggleKnob,
-                    ...(rawPreview ? styles.toggleKnobOn : {}),
-                  }}
-                />
-              </button>
-            </div>
-          </div>
+          {/* Divider */}
+          <div style={styles.divider} />
 
-          {/* Check for updates section */}
-          <div style={{ ...styles.section, marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+          {/* Check for updates */}
+          <div style={styles.section}>
             {updateStatus === 'idle' && (
               <button style={styles.updateBtn} onClick={handleCheckUpdate}>
                 {t.checkUpdate}
@@ -417,34 +376,16 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
             )}
           </div>
 
-          {/* Auto update section */}
-          <div style={{ ...styles.section, marginTop: '8px' }}>
-            <div style={styles.toggleRow}>
-              <span style={styles.toggleLabel}>{t.autoUpdateDesc}</span>
-              <button
-                style={{
-                  ...styles.toggle,
-                  ...(autoUpdate ? styles.toggleOn : {}),
-                }}
-                onClick={handleAutoUpdateToggle}
-              >
-                <div
-                  style={{
-                    ...styles.toggleKnob,
-                    ...(autoUpdate ? styles.toggleKnobOn : {}),
-                  }}
-                />
-              </button>
-            </div>
+          {/* Auto update */}
+          <div style={styles.compactRow} title={t.autoUpdateDesc}>
+            <span style={styles.rowLabel}>{t.autoUpdate}</span>
+            <button
+              style={{ ...styles.toggle, ...(autoUpdate ? styles.toggleOn : {}) }}
+              onClick={handleAutoUpdateToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(autoUpdate ? styles.toggleKnobOn : {}) }} />
+            </button>
           </div>
-
-          {/* Version info */}
-          {appVersion && (
-            <div style={styles.versionRow}>
-              <span style={styles.versionLabel}>{t.version}</span>
-              <span style={styles.versionValue}>v{appVersion}</span>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -473,32 +414,50 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: '36px',
     right: '0',
-    width: '240px',
+    width: '220px',
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: '8px',
-    padding: '12px',
+    padding: '10px',
     zIndex: 200,
   },
   panelTitle: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     fontSize: '13px',
     fontWeight: 600,
     color: 'var(--text-primary)',
-    marginBottom: '12px',
+    marginBottom: '10px',
     paddingBottom: '8px',
     borderBottom: '1px solid var(--border)',
+  },
+  versionBadge: {
+    fontSize: '10px',
+    fontWeight: 500,
+    color: 'var(--text-muted)',
+    fontFamily: 'monospace',
   },
   section: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '6px',
+    gap: '4px',
   },
-  label: {
-    fontSize: '11px',
-    fontWeight: 500,
-    color: 'var(--text-muted)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
+  compactRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '4px 0',
+  },
+  rowLabel: {
+    fontSize: '12px',
+    color: 'var(--text-primary)',
+    flex: 1,
+  },
+  divider: {
+    height: '1px',
+    background: 'var(--border)',
+    margin: '6px 0',
   },
   langOptions: {
     display: 'flex',
@@ -506,12 +465,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   langBtn: {
     flex: 1,
-    padding: '6px 0',
+    padding: '5px 0',
     border: '1px solid var(--border)',
     borderRadius: '6px',
     background: 'transparent',
     color: 'var(--text-secondary)',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 500,
     cursor: 'pointer',
     transition: 'all 0.15s',
@@ -521,19 +480,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: 'var(--accent)',
     color: '#ffffff',
   },
-  toggleRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  toggleLabel: {
-    fontSize: '11px',
-    color: 'var(--text-secondary)',
-    flex: 1,
-  },
   shortcutBtn: {
-    padding: '4px 10px',
+    padding: '3px 8px',
     border: '1px solid var(--border)',
     borderRadius: '6px',
     background: 'transparent',
@@ -562,10 +510,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   toggle: {
     position: 'relative',
-    width: '36px',
-    height: '20px',
+    width: '34px',
+    height: '18px',
     border: 'none',
-    borderRadius: '10px',
+    borderRadius: '9px',
     background: 'var(--border)',
     cursor: 'pointer',
     padding: 0,
@@ -579,8 +527,8 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: '2px',
     left: '2px',
-    width: '16px',
-    height: '16px',
+    width: '14px',
+    height: '14px',
     borderRadius: '50%',
     background: '#ffffff',
     transition: 'transform 0.2s',
@@ -590,12 +538,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   updateBtn: {
     width: '100%',
-    padding: '7px 0',
+    padding: '6px 0',
     border: '1px solid var(--border)',
     borderRadius: '6px',
     background: 'transparent',
     color: 'var(--text-primary)',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 500,
     cursor: 'pointer',
     transition: 'all 0.15s',
@@ -662,23 +610,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     cursor: 'pointer',
     flexShrink: 0,
-  },
-  versionRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: '12px',
-    paddingTop: '8px',
-    borderTop: '1px solid var(--border)',
-  },
-  versionLabel: {
-    fontSize: '11px',
-    color: 'var(--text-muted)',
-  },
-  versionValue: {
-    fontSize: '11px',
-    color: 'var(--text-secondary)',
-    fontWeight: 500,
-    fontFamily: 'monospace',
   },
 };

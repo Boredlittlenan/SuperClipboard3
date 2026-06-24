@@ -29,7 +29,6 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
     e.stopPropagation();
     setEditContent(entry.content);
     setEditing(true);
-    // Focus the textarea after render
     setTimeout(() => textareaRef.current?.focus(), 50);
   }, [entry.content]);
 
