@@ -345,7 +345,7 @@ impl Storage {
             param_values.push(Box::new(pattern));
         }
 
-        sql.push_str(" ORDER BY pinned DESC, updated_at DESC");
+        sql.push_str(" ORDER BY pinned DESC, created_at DESC");
 
         let limit = filter.limit.unwrap_or(100);
         sql.push_str(&format!(" LIMIT {}", limit));

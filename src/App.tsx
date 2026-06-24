@@ -110,18 +110,20 @@ function AppContent() {
     document.documentElement.dataset.accent = themeAccent;
   }, [resolvedTheme, themeAccent]);
 
-  // Apply custom memo color as CSS variable override
+  // Apply custom memo color via data attribute + CSS variables
   useEffect(() => {
     const root = document.documentElement;
     if (memoColor) {
       const r = parseInt(memoColor.slice(1, 3), 16);
       const g = parseInt(memoColor.slice(3, 5), 16);
       const b = parseInt(memoColor.slice(5, 7), 16);
-      root.style.setProperty('--memo-contrast', memoColor);
-      root.style.setProperty('--memo-contrast-bg', `rgba(${r}, ${g}, ${b}, 0.1)`);
+      root.setAttribute('data-memo-color', memoColor);
+      root.style.setProperty('--custom-memo-color', memoColor);
+      root.style.setProperty('--custom-memo-color-bg', `rgba(${r}, ${g}, ${b}, 0.1)`);
     } else {
-      root.style.removeProperty('--memo-contrast');
-      root.style.removeProperty('--memo-contrast-bg');
+      root.removeAttribute('data-memo-color');
+      root.style.removeProperty('--custom-memo-color');
+      root.style.removeProperty('--custom-memo-color-bg');
     }
   }, [memoColor]);
 

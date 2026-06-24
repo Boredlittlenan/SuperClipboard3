@@ -58,6 +58,27 @@
   --memo-contrast-bg: rgba(96, 165, 250, 0.12);
 }
 
+/* Custom memo color overrides — higher specificity than any theme block */
+:root[data-memo-color] {
+  --memo-contrast: var(--custom-memo-color);
+  --memo-contrast-bg: var(--custom-memo-color-bg);
+}
+
+:root[data-theme="dark"][data-memo-color] {
+  --memo-contrast: var(--custom-memo-color);
+  --memo-contrast-bg: var(--custom-memo-color-bg);
+}
+
+:root[data-accent="sakura"][data-memo-color] {
+  --memo-contrast: var(--custom-memo-color);
+  --memo-contrast-bg: var(--custom-memo-color-bg);
+}
+
+:root[data-theme="dark"][data-accent="sakura"][data-memo-color] {
+  --memo-contrast: var(--custom-memo-color);
+  --memo-contrast-bg: var(--custom-memo-color-bg);
+}
+
 /* ─── App Root ─── */
 .app-root {
   display: flex;

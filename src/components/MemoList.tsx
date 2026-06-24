@@ -75,19 +75,26 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
       await updateMemo(id, vals.title, vals.body, vals.tags).catch(console.error);
     }
 
-    // 2. Fetch fresh list from DB — this is the key fix:
-    //    we always read from DB, never from the stale in-memory array
+    // 2. Fetch fresh list from DB — preserving current visual order
     const seq = ++clickSeqRef.current;
     try {
       const filter = searchQuery.trim()
         ? { search: searchQuery.trim(), limit: 100 }
         : { limit: 100 };
       const freshList = await getMemos(filter);
-      setMemos(freshList);
 
-      // Only apply editor if this is still the latest click
       if (clickSeqRef.current === seq) {
-        const fresh = freshList.find(m => m.id === memo.id);
+        // Preserve current visual order: use current order as reference,
+        // only insert genuinely new memos at the top
+        const currentIds = new Set(memos.map(m => m.id));
+        const freshMap = new Map(freshList.map(m => [m.id, m]));
+        const newMemos = freshList.filter(m => !currentIds.has(m.id));
+        const preserved = memos
+          .filter(m => freshMap.has(m.id))
+          .map(m => freshMap.get(m.id)!);
+        setMemos([...newMemos, ...preserved]);
+
+        const fresh = freshMap.get(memo.id);
         if (fresh) {
           setIsCreating(false);
           setEditingId(fresh.id);
