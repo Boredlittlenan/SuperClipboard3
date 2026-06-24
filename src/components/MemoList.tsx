@@ -231,7 +231,7 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
             style={{
               ...styles.memoItem,
               ...(editingId === memo.id ? styles.memoItemActive : {}),
-              borderLeft: memo.pinned ? '3px solid var(--memo-accent)' : '3px solid transparent',
+              borderLeft: memo.pinned ? '3px solid var(--accent)' : '3px solid transparent',
             }}
             onClick={() => handleMemoClick(memo)}
           >
@@ -286,10 +286,10 @@ const styles: Record<string, React.CSSProperties> = {
   newBtn: {
     width: '100%',
     padding: '8px 0',
-    border: '1px dashed var(--memo-border)',
+    border: '1px dashed var(--border)',
     borderRadius: '6px',
     background: 'transparent',
-    color: 'var(--memo-accent)',
+    color: 'var(--accent)',
     fontSize: '12px',
     fontWeight: 500,
     cursor: 'pointer',
@@ -297,8 +297,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   editor: {
     padding: '8px 12px',
-    borderBottom: '1px solid var(--memo-border)',
-    background: 'var(--memo-bg)',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--surface)',
     display: 'flex',
     flexDirection: 'column',
     gap: '6px',
@@ -329,14 +329,13 @@ const styles: Record<string, React.CSSProperties> = {
     outline: 'none',
     background: 'transparent',
     fontSize: '11px',
-    color: 'var(--memo-accent)',
+    color: '#8b5cf6',
     padding: '4px 0',
   },
   list: {
     flex: 1,
     overflowY: 'auto',
     overflowX: 'hidden',
-    padding: '4px 0',
   },
   empty: {
     flex: 1,
@@ -361,17 +360,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-muted)',
   },
   memoItem: {
-    margin: '4px 8px',
     padding: '10px 12px',
-    background: 'var(--memo-bg)',
-    border: '1px solid var(--memo-border)',
-    borderRadius: '8px',
+    borderBottom: '1px solid var(--border)',
     cursor: 'pointer',
     transition: 'background 0.1s',
   },
   memoItemActive: {
     background: 'var(--hover-bg)',
-    borderColor: 'var(--memo-accent)',
   },
   memoContent: {
     display: 'flex',
@@ -432,8 +427,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'inline-block',
     padding: '1px 6px',
     borderRadius: '8px',
-    background: 'var(--memo-border)',
-    color: 'var(--memo-accent)',
+    background: 'var(--hover-bg)',
+    color: 'var(--accent)',
     fontSize: '10px',
     fontWeight: 500,
   },

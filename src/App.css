@@ -12,9 +12,6 @@
   --code-bg: #f5f5f5;
   --danger: #ef4444;
   --success: #10b981;
-  --memo-bg: #fef9ef;
-  --memo-accent: #f59e0b;
-  --memo-border: #fde68a;
 }
 
 :root[data-theme="dark"],
@@ -29,9 +26,6 @@
   --accent: #3b82f6;
   --accent-bg: rgba(59, 130, 246, 0.16);
   --code-bg: #1e1e1e;
-  --memo-bg: #1f1a0e;
-  --memo-accent: #fbbf24;
-  --memo-border: #3d3219;
 }
 
 :root[data-accent="sakura"],
