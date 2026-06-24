@@ -46,7 +46,9 @@ export default function CategoryTabs({ activeTab, onTabChange, stats, memoEnable
               onClick={() => onTabChange(tab)}
               style={{
                 ...styles.tab,
-                ...(isActive ? styles.tabActive : {}),
+                ...(isActive
+                  ? (tab === 'memo' ? styles.tabActiveMemo : styles.tabActive)
+                  : {}),
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
@@ -108,6 +110,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tabActive: {
     background: 'var(--accent)',
+    color: '#ffffff',
+  },
+  tabActiveMemo: {
+    background: 'var(--memo-contrast)',
     color: '#ffffff',
   },
   tabLabel: {
