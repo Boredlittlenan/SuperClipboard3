@@ -35,6 +35,8 @@ open = "5"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging"] }
+enigo = "0.2"
 
 # Optimize for small binary size in release
 [profile.release]

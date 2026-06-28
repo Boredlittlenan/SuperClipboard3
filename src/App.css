@@ -59,22 +59,26 @@
 }
 
 /* Custom memo color overrides — higher specificity than any theme block */
-:root[data-memo-color] {
+:root[data-memo-color],
+.app-root[data-memo-color] {
   --memo-contrast: var(--custom-memo-color);
   --memo-contrast-bg: var(--custom-memo-color-bg);
 }
 
-:root[data-theme="dark"][data-memo-color] {
+:root[data-theme="dark"][data-memo-color],
+.app-root[data-theme="dark"][data-memo-color] {
   --memo-contrast: var(--custom-memo-color);
   --memo-contrast-bg: var(--custom-memo-color-bg);
 }
 
-:root[data-accent="sakura"][data-memo-color] {
+:root[data-accent="sakura"][data-memo-color],
+.app-root[data-accent="sakura"][data-memo-color] {
   --memo-contrast: var(--custom-memo-color);
   --memo-contrast-bg: var(--custom-memo-color-bg);
 }
 
-:root[data-theme="dark"][data-accent="sakura"][data-memo-color] {
+:root[data-theme="dark"][data-accent="sakura"][data-memo-color],
+.app-root[data-theme="dark"][data-accent="sakura"][data-memo-color] {
   --memo-contrast: var(--custom-memo-color);
   --memo-contrast-bg: var(--custom-memo-color-bg);
 }
@@ -274,4 +278,62 @@
 .settings-gear-btn:hover {
   background: var(--hover-bg) !important;
   color: var(--text-primary) !important;
+}
+
+/* ─── Entry Hover Fix (CSS :hover instead of React state) ─── */
+.clipboard-entry {
+  background: #f5f5f5;
+  transition: background 0.12s ease;
+}
+.clipboard-entry:hover {
+  background: #ebebeb;
+}
+.clipboard-entry .entry-actions {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.clipboard-entry:hover .entry-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.memo-entry {
+  background: #f5f5f5;
+  transition: background 0.15s ease;
+}
+.memo-entry:hover {
+  background: #ebebeb;
+}
+.memo-entry .memo-actions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.memo-entry:hover .memo-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Selectable memo text */
+.memo-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Fixed text colors for entries (readable on light bg regardless of theme) */
+.clipboard-entry,
+.memo-entry {
+  color: #1a1a1a;
+}
+.clipboard-entry .entry-category-badge {
+  color: #525252;
+}
+.clipboard-entry .entry-time,
+.memo-entry .memo-time {
+  color: #999999;
+}
+.clipboard-entry .entry-preview,
+.memo-entry .memo-preview {
+  color: #525252;
 }

@@ -81,6 +81,7 @@ impl ClipboardMonitor {
                                         created_at: Utc::now(),
                                         original_content: None,
                                         updated_at: None,
+                                        archived_at: None,
                                     };
 
                                     match storage.insert(&entry) {
@@ -126,6 +127,7 @@ impl ClipboardMonitor {
                             created_at: Utc::now(),
                             original_content: None,
                             updated_at: None,
+                            archived_at: None,
                         };
 
                         match storage.insert(&entry) {

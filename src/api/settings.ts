@@ -51,3 +51,13 @@ export async function openUrl(url: string): Promise<void> {
 export async function setAlwaysOnTop(enabled: boolean): Promise<void> {
   return invoke('set_always_on_top', { enabled });
 }
+
+/** Get the current cursor/screen position */
+export async function getCursorPosition(): Promise<{ x: number; y: number }> {
+  return invoke('get_cursor_position');
+}
+
+/** Copy entry to clipboard, hide window, and paste (Ctrl+V) to the active window */
+export async function pasteToActiveWindow(id: number): Promise<boolean> {
+  return invoke('paste_to_active_window', { id });
+}

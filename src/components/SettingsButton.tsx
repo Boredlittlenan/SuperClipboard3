@@ -33,9 +33,11 @@ interface SettingsButtonProps {
   onRawPreviewChange?: (enabled: boolean) => void;
   onThemeModeChange?: (mode: ThemeMode) => void;
   onThemeAccentChange?: (accent: string) => void;
+  onArchiveEnabledChange?: (enabled: boolean) => void;
+  onFollowModeChange?: (enabled: boolean) => void;
 }
 
-export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, onMemoColorChange, onRawPreviewChange, onThemeModeChange, onThemeAccentChange }: SettingsButtonProps) {
+export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, onMemoColorChange, onRawPreviewChange, onThemeModeChange, onThemeAccentChange, onArchiveEnabledChange, onFollowModeChange }: SettingsButtonProps) {
   const { t, locale, setLocale } = useI18n();
   const [open, setOpen] = useState(false);
   const [autostart, setAutostart] = useState(false);
@@ -45,6 +47,8 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
   const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
   const [themeAccent, setThemeAccentState] = useState('default');
   const [autoUpdate, setAutoUpdate] = useState(false);
+  const [archiveEnabled, setArchiveEnabledState] = useState(false);
+  const [followMode, setFollowModeState] = useState(true);
   const [appVersion, setAppVersion] = useState('');
   const [memoColor, setMemoColor] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -115,14 +119,23 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
       getSetting('auto_update').then((v) => {
         setAutoUpdate(v === 'true');
       }).catch(console.error);
+      getSetting('archive_enabled').then((v) => {
+        setArchiveEnabledState(v === 'true');
+        onArchiveEnabledChange?.(v === 'true');
+      }).catch(console.error);
       getSetting('memo_color').then((v) => {
         setMemoColor(v);
         setHexInput(v || '');
       }).catch(console.error);
+      getSetting('follow_mode').then((v) => {
+        const enabled = v !== 'false';
+        setFollowModeState(enabled);
+        onFollowModeChange?.(enabled);
+      }).catch(console.error);
       setShowColorPicker(false);
       getVersion().then(setAppVersion).catch(console.error);
     }
-  }, [open, onMemoEnabledChange, onShortcutChange, onThemeModeChange, onThemeAccentChange]);
+  }, [open, onMemoEnabledChange, onShortcutChange, onThemeModeChange, onThemeAccentChange, onArchiveEnabledChange, onFollowModeChange]);
 
   // Close panel when clicking outside
   useEffect(() => {
@@ -282,6 +295,20 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
     setAutoUpdate(newValue);
   }, [autoUpdate]);
 
+  const handleArchiveToggle = useCallback(async () => {
+    const newValue = !archiveEnabled;
+    await setSetting('archive_enabled', newValue ? 'true' : 'false');
+    setArchiveEnabledState(newValue);
+    onArchiveEnabledChange?.(newValue);
+  }, [archiveEnabled, onArchiveEnabledChange]);
+
+  const handleFollowModeToggle = useCallback(async () => {
+    const newValue = !followMode;
+    await setSetting('follow_mode', newValue ? 'true' : 'false');
+    setFollowModeState(newValue);
+    onFollowModeChange?.(newValue);
+  }, [followMode, onFollowModeChange]);
+
   const handleCheckUpdate = useCallback(async () => {
     setUpdateStatus('checking');
     try {
@@ -344,6 +371,9 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
               ))}
             </div>
           </div>
+
+          {/* System Settings header */}
+          <div style={styles.sectionHeader}>{t.systemSettings}</div>
 
           {/* Shortcut section */}
           <div style={styles.compactRow} title={t.shortcutDesc}>
@@ -441,6 +471,53 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
             </button>
           </div>
 
+          {/* Always on top */}
+          <div style={styles.compactRow} title={t.alwaysOnTopDesc}>
+            <span style={styles.rowLabel}>{t.alwaysOnTop}</span>
+            <button
+              style={{ ...styles.toggle, ...(alwaysOnTop ? styles.toggleOn : {}) }}
+              onClick={handleAlwaysOnTopToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(alwaysOnTop ? styles.toggleKnobOn : {}) }} />
+            </button>
+          </div>
+
+          {/* Raw preview */}
+          <div style={styles.compactRow} title={t.rawPreviewDesc}>
+            <span style={styles.rowLabel}>{t.rawPreview}</span>
+            <button
+              style={{ ...styles.toggle, ...(rawPreview ? styles.toggleOn : {}) }}
+              onClick={handleRawPreviewToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(rawPreview ? styles.toggleKnobOn : {}) }} />
+            </button>
+          </div>
+
+          {/* Follow mode */}
+          <div style={styles.compactRow} title={t.followModeDesc}>
+            <span style={styles.rowLabel}>{t.followMode}</span>
+            <button
+              style={{ ...styles.toggle, ...(followMode ? styles.toggleOn : {}) }}
+              onClick={handleFollowModeToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(followMode ? styles.toggleKnobOn : {}) }} />
+            </button>
+          </div>
+
+          {/* Auto update */}
+          <div style={styles.compactRow} title={t.autoUpdateDesc}>
+            <span style={styles.rowLabel}>{t.autoUpdate}</span>
+            <button
+              style={{ ...styles.toggle, ...(autoUpdate ? styles.toggleOn : {}) }}
+              onClick={handleAutoUpdateToggle}
+            >
+              <div style={{ ...styles.toggleKnob, ...(autoUpdate ? styles.toggleKnobOn : {}) }} />
+            </button>
+          </div>
+
+          {/* Feature Settings header */}
+          <div style={styles.sectionHeader}>{t.featureSettings}</div>
+
           {/* Memo */}
           <div style={styles.compactRow} title={t.memoSettingDesc}>
             <span style={styles.rowLabel}>{t.memoSetting}</span>
@@ -507,36 +584,14 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
             </div>
           )}
 
-          {/* Always on top */}
-          <div style={styles.compactRow} title={t.alwaysOnTopDesc}>
-            <span style={styles.rowLabel}>{t.alwaysOnTop}</span>
+          {/* Archive */}
+          <div style={styles.compactRow} title={t.archiveSettingDesc}>
+            <span style={styles.rowLabel}>{t.archiveSetting}</span>
             <button
-              style={{ ...styles.toggle, ...(alwaysOnTop ? styles.toggleOn : {}) }}
-              onClick={handleAlwaysOnTopToggle}
+              style={{ ...styles.toggle, ...(archiveEnabled ? styles.toggleOn : {}) }}
+              onClick={handleArchiveToggle}
             >
-              <div style={{ ...styles.toggleKnob, ...(alwaysOnTop ? styles.toggleKnobOn : {}) }} />
-            </button>
-          </div>
-
-          {/* Raw preview */}
-          <div style={styles.compactRow} title={t.rawPreviewDesc}>
-            <span style={styles.rowLabel}>{t.rawPreview}</span>
-            <button
-              style={{ ...styles.toggle, ...(rawPreview ? styles.toggleOn : {}) }}
-              onClick={handleRawPreviewToggle}
-            >
-              <div style={{ ...styles.toggleKnob, ...(rawPreview ? styles.toggleKnobOn : {}) }} />
-            </button>
-          </div>
-
-          {/* Auto update */}
-          <div style={styles.compactRow} title={t.autoUpdateDesc}>
-            <span style={styles.rowLabel}>{t.autoUpdate}</span>
-            <button
-              style={{ ...styles.toggle, ...(autoUpdate ? styles.toggleOn : {}) }}
-              onClick={handleAutoUpdateToggle}
-            >
-              <div style={{ ...styles.toggleKnob, ...(autoUpdate ? styles.toggleKnobOn : {}) }} />
+              <div style={{ ...styles.toggleKnob, ...(archiveEnabled ? styles.toggleKnobOn : {}) }} />
             </button>
           </div>
 
@@ -651,6 +706,17 @@ const styles: Record<string, React.CSSProperties> = {
     height: '1px',
     background: 'var(--border)',
     margin: '6px 0',
+  },
+  sectionHeader: {
+    fontSize: '10px',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px',
+    marginTop: '6px',
+    marginBottom: '2px',
+    paddingBottom: '4px',
+    borderBottom: '1px solid var(--border)',
   },
   langOptions: {
     display: 'flex',

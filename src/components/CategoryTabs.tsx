@@ -9,21 +9,26 @@ interface Props {
   stats: Stats | null;
   memoEnabled?: boolean;
   memoCount?: number | null;
+  archiveEnabled?: boolean;
+  archiveCount?: number | null;
 }
 
-export default function CategoryTabs({ activeTab, onTabChange, stats, memoEnabled, memoCount }: Props) {
+export default function CategoryTabs({ activeTab, onTabChange, stats, memoEnabled, memoCount, archiveEnabled, archiveCount }: Props) {
   const { t } = useI18n();
 
-  const tabs: FilterTab[] = memoEnabled ? ['memo', 'all', 'text', 'link', 'image', 'code', 'email', 'file_path'] : ['all', 'text', 'link', 'image', 'code', 'email', 'file_path'];
+  const baseTabs: FilterTab[] = ['all', 'text', 'link', 'image', 'code', 'email', 'file_path'];
+  if (archiveEnabled) baseTabs.push('archive');
+  const tabs: FilterTab[] = memoEnabled ? ['memo', ...baseTabs] : baseTabs;
 
   const getCount = useCallback(
     (tab: FilterTab): number | null => {
       if (tab === 'memo') return memoCount ?? null;
+      if (tab === 'archive') return archiveCount ?? null;
       if (!stats) return null;
       if (tab === 'all') return stats.total;
       return (stats as unknown as Record<string, number>)[tab] ?? null;
     },
-    [stats, memoCount]
+    [stats, memoCount, archiveCount]
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);

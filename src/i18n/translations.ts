@@ -16,6 +16,7 @@ export interface Translations {
   tabCode: string;
   tabEmail: string;
   tabPath: string;
+  tabArchive: string;
 
   // Clipboard items
   justNow: string;
@@ -28,6 +29,16 @@ export interface Translations {
   edit: string;
   save: string;
   cancel: string;
+  openInBrowser: string;
+  restore: string;
+  archive: string;
+  permanentDelete: string;
+  permanentDeleteConfirm: string;
+  archiveEmpty: string;
+  archiveEmptyHint: string;
+  daysRemaining: (n: number) => string;
+  archiveSubTab: string;
+  memoSubTab: string;
   editedAt: (time: string) => string;
   originalContent: string;
   showOriginal: string;
@@ -59,6 +70,8 @@ export interface Translations {
   memoColor: string;
   memoColorDesc: string;
   memoColorReset: string;
+  archiveSetting: string;
+  archiveSettingDesc: string;
 
   // Toast
   copied: string;
@@ -83,6 +96,8 @@ export interface Translations {
   alwaysOnTopDesc: string;
   rawPreview: string;
   rawPreviewDesc: string;
+  followMode: string;
+  followModeDesc: string;
   autoUpdate: string;
   autoUpdateDesc: string;
   version: string;
@@ -96,10 +111,12 @@ export interface Translations {
   hasUpdate: (version: string) => string;
   updateFailed: string;
   downloadUpdate: string;
+  systemSettings: string;
+  featureSettings: string;
 }
 
 export const zhCN: Translations = {
-  appTitle: 'SuperClipboard3',
+  appTitle: '小楠の剪切板',
 
   searchPlaceholder: '搜索剪贴板...',
   clearSearch: '清除搜索',
@@ -111,6 +128,7 @@ export const zhCN: Translations = {
   tabCode: '代码',
   tabEmail: '邮箱',
   tabPath: '路径',
+  tabArchive: '归档',
 
   justNow: '刚刚',
   minutesAgo: (n) => `${n} 分钟前`,
@@ -122,6 +140,16 @@ export const zhCN: Translations = {
   edit: '编辑',
   save: '保存',
   cancel: '取消',
+  openInBrowser: '在浏览器中打开',
+  restore: '恢复',
+  archive: '归档',
+  permanentDelete: '彻底删除',
+  permanentDeleteConfirm: '确定要彻底删除此条目吗？此操作不可恢复。',
+  archiveEmpty: '归档为空',
+  archiveEmptyHint: '删除的条目会自动归档',
+  daysRemaining: (n) => `${n} 天后自动删除`,
+  archiveSubTab: '剪贴板',
+  memoSubTab: '备忘录',
   editedAt: (time) => `编辑于 ${time}`,
   originalContent: '原始内容',
   showOriginal: '查看原文',
@@ -150,6 +178,8 @@ export const zhCN: Translations = {
   memoColor: '备忘录配色',
   memoColorDesc: '自定义备忘录模块配色，不受主题影响',
   memoColorReset: '重置',
+  archiveSetting: '归档功能',
+  archiveSettingDesc: '删除条目时自动归档，30天内可恢复',
 
   copied: '已复制！',
 
@@ -172,6 +202,8 @@ export const zhCN: Translations = {
   alwaysOnTopDesc: '窗口始终显示在最前面',
   rawPreview: '原格式预览',
   rawPreviewDesc: '以原始格式显示剪贴板内容',
+  followMode: '跟随模式',
+  followModeDesc: '快捷键唤起时窗口跟随鼠标位置',
   autoUpdate: '自动检查更新',
   autoUpdateDesc: '每次启动时自动检查更新',
   version: '版本号',
@@ -185,6 +217,8 @@ export const zhCN: Translations = {
   hasUpdate: (v) => `发现新版本 ${v}`,
   updateFailed: '检查失败，请稍后重试',
   downloadUpdate: '前往下载',
+  systemSettings: '系统设置',
+  featureSettings: '功能设置',
 };
 
 export const en: Translations = {
@@ -200,6 +234,7 @@ export const en: Translations = {
   tabCode: 'Code',
   tabEmail: 'Email',
   tabPath: 'Path',
+  tabArchive: 'Archive',
 
   justNow: 'just now',
   minutesAgo: (n) => `${n}m ago`,
@@ -211,6 +246,16 @@ export const en: Translations = {
   edit: 'Edit',
   save: 'Save',
   cancel: 'Cancel',
+  openInBrowser: 'Open in browser',
+  restore: 'Restore',
+  archive: 'Archive',
+  permanentDelete: 'Delete Forever',
+  permanentDeleteConfirm: 'Permanently delete this item? This cannot be undone.',
+  archiveEmpty: 'Archive is empty',
+  archiveEmptyHint: 'Deleted items will be archived automatically',
+  daysRemaining: (n) => `${n} day${n !== 1 ? 's' : ''} until auto-delete`,
+  archiveSubTab: 'Clipboard',
+  memoSubTab: 'Memos',
   editedAt: (time) => `Edited ${time}`,
   originalContent: 'Original',
   showOriginal: 'Show original',
@@ -239,6 +284,8 @@ export const en: Translations = {
   memoColor: 'Memo Color',
   memoColorDesc: 'Customize memo module color, independent of theme',
   memoColorReset: 'Reset',
+  archiveSetting: 'Archive',
+  archiveSettingDesc: 'Auto-archive deleted items, recoverable within 30 days',
 
   copied: 'Copied!',
 
@@ -261,6 +308,8 @@ export const en: Translations = {
   alwaysOnTopDesc: 'Keep window above others',
   rawPreview: 'Raw Preview',
   rawPreviewDesc: 'Show clipboard content in raw format',
+  followMode: 'Follow Mode',
+  followModeDesc: 'Window follows cursor position when shown via shortcut',
   autoUpdate: 'Auto Update',
   autoUpdateDesc: 'Check for updates on startup',
   version: 'Version',
@@ -274,6 +323,8 @@ export const en: Translations = {
   hasUpdate: (v) => `New version ${v} available`,
   updateFailed: 'Check failed, try again later',
   downloadUpdate: 'Download',
+  systemSettings: 'System Settings',
+  featureSettings: 'Feature Settings',
 };
 
 export const translationsMap: Record<Locale, Translations> = {

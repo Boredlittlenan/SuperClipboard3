@@ -42,6 +42,13 @@ static UNIX_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(/[^/\x00]+)+/?$").unwrap()
 });
 
+/// Bare domain detection: www.example.com, example.com, sub.domain.co.uk, etc.
+/// Matches optional www. prefix, domain labels, and a TLD of 2+ characters.
+/// Allows paths, query strings, and fragments after the domain.
+static DOMAIN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(www\.)?([a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}(/[^\s]*)?$").unwrap()
+});
+
 // ─── Code detection patterns (used for scoring) ─────────────────────
 
 /// Keywords that strongly indicate code (weight: 3 each)
@@ -192,13 +199,21 @@ pub fn classify_text(text: &str) -> Category {
     }
 
     // Check for URL/Link (must be a single URL, not embedded in other text)
-    if trimmed.lines().count() <= 2
-        && Url::parse(trimmed).is_ok()
-        && (trimmed.starts_with("http://")
-            || trimmed.starts_with("https://")
-            || trimmed.starts_with("ftp://"))
-    {
-        return Category::Link;
+    if trimmed.lines().count() <= 2 {
+        // Standard scheme-based detection
+        let has_scheme = Url::parse(trimmed).is_ok()
+            && (trimmed.starts_with("http://")
+                || trimmed.starts_with("https://")
+                || trimmed.starts_with("ftp://"));
+
+        // Bare domain detection: www.example.com or example.com with common TLDs
+        let is_bare_domain = trimmed.lines().count() == 1
+            && !trimmed.contains(' ')
+            && DOMAIN_RE.is_match(trimmed);
+
+        if has_scheme || is_bare_domain {
+            return Category::Link;
+        }
     }
 
     // Check for email

@@ -5,7 +5,7 @@ mod storage;
 
 use clipboard::ClipboardMonitor;
 use log::info;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use storage::{ClipboardEntry, QueryFilter, Storage, Memo, MemoFilter};
 use tauri::Manager;
@@ -72,6 +72,7 @@ fn register_toggle_shortcut(
                     } else {
                         let _ = window.show();
                         let _ = window.set_focus();
+                        let _ = app.emit("window-shown", "shortcut");
                     }
                 }
             }
@@ -92,8 +93,12 @@ fn get_entries(
 }
 
 #[tauri::command]
-fn delete_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
-    state.storage.delete(id).map_err(|e| e.to_string())
+fn delete_entry(state: tauri::State<'_, AppState>, id: i64, archive: Option<bool>) -> Result<bool, String> {
+    if archive.unwrap_or(false) {
+        state.storage.archive_entry(id).map_err(|e| e.to_string())
+    } else {
+        state.storage.delete(id).map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -116,6 +121,7 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, Str
     let email = state.storage.count(Some("email")).map_err(|e| e.to_string())?;
     let file_path = state.storage.count(Some("file_path")).map_err(|e| e.to_string())?;
     let db_size = state.storage.db_size().map_err(|e| e.to_string())?;
+    let archive = state.storage.archive_count().map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "total": total,
@@ -126,12 +132,51 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, Str
         "email": email,
         "file_path": file_path,
         "dbSize": db_size,
+        "archive": archive,
     }))
 }
 
 #[tauri::command]
-fn clear_unpinned(state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    state.storage.clear_unpinned().map_err(|e| e.to_string())
+fn clear_unpinned(state: tauri::State<'_, AppState>, archive: Option<bool>) -> Result<u64, String> {
+    state.storage.clear_unpinned(archive.unwrap_or(false)).map_err(|e| e.to_string())
+}
+
+// ─── Archive Commands ──────────────────────────────────────────
+
+#[tauri::command]
+fn archive_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state.storage.archive_entry(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn unarchive_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state.storage.unarchive_entry(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_archived_entries(
+    state: tauri::State<'_, AppState>,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<ClipboardEntry>, String> {
+    state
+        .storage
+        .query_archived(&filter.unwrap_or_default())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn archive_count(state: tauri::State<'_, AppState>) -> Result<i64, String> {
+    state.storage.archive_count().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn permanent_delete(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state.storage.permanent_delete(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn purge_old_archives(state: tauri::State<'_, AppState>, days: i64) -> Result<u64, String> {
+    state.storage.purge_old_archives(days).map_err(|e| e.to_string())
 }
 
 /// Copy a stored entry back to the system clipboard
@@ -256,6 +301,85 @@ fn set_always_on_top(app: tauri::AppHandle, enabled: bool) -> Result<(), String>
     Ok(())
 }
 
+// ─── Window Position & Paste Commands ─────────────────────────
+
+#[derive(Serialize)]
+pub struct CursorPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[tauri::command]
+fn get_cursor_position() -> Result<CursorPosition, String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+        let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+        unsafe {
+            GetCursorPos(&mut point).map_err(|e| format!("GetCursorPos failed: {}", e))?;
+        }
+        Ok(CursorPosition { x: point.x, y: point.y })
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Cursor position not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+fn paste_to_active_window(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    // Copy content to clipboard first
+    let entry = state
+        .storage
+        .get_entry_by_id(id)
+        .map_err(|e| e.to_string())?;
+
+    if let Some(entry) = entry {
+        let mut clip = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        match entry.category {
+            classifier::Category::Image => {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&entry.content)
+                    .map_err(|e| e.to_string())?;
+                let img = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                let img_data = arboard::ImageData {
+                    width: w as usize,
+                    height: h as usize,
+                    bytes: rgba.into_raw().into(),
+                };
+                clip.set_image(img_data).map_err(|e| e.to_string())?;
+            }
+            _ => {
+                clip.set_text(&entry.content).map_err(|e| e.to_string())?;
+            }
+        }
+    } else {
+        return Ok(false);
+    }
+
+    // Hide the window
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+
+    // Wait for focus to return to previous window, then simulate Ctrl+V
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    #[cfg(windows)]
+    {
+        use enigo::{Enigo, Keyboard, Settings};
+        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| format!("Enigo init failed: {:?}", e))?;
+        enigo.key(enigo::Key::Control, enigo::Direction::Press).map_err(|e| format!("Key press failed: {:?}", e))?;
+        enigo.key(enigo::Key::Unicode('v'), enigo::Direction::Click).map_err(|e| format!("Key click failed: {:?}", e))?;
+        enigo.key(enigo::Key::Control, enigo::Direction::Release).map_err(|e| format!("Key release failed: {:?}", e))?;
+    }
+
+    Ok(true)
+}
+
 // ─── Memo Commands ──────────────────────────────────────────────
 
 #[tauri::command]
@@ -297,8 +421,8 @@ fn update_memo(
 }
 
 #[tauri::command]
-fn delete_memo(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
-    state.storage.delete_memo(id).map_err(|e| e.to_string())
+fn delete_memo(state: tauri::State<'_, AppState>, id: i64, archive: Option<bool>) -> Result<bool, String> {
+    state.storage.delete_memo(id, archive.unwrap_or(false)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -309,6 +433,59 @@ fn toggle_memo_pin(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, S
 #[tauri::command]
 fn memo_count(state: tauri::State<'_, AppState>) -> Result<i64, String> {
     state.storage.memo_count().map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+struct ReorderItem {
+    id: i64,
+    sort_order: i64,
+}
+
+#[tauri::command]
+fn reorder_memos(
+    state: tauri::State<'_, AppState>,
+    orders: Vec<ReorderItem>,
+) -> Result<(), String> {
+    let pairs: Vec<(i64, i64)> = orders.iter().map(|r| (r.id, r.sort_order)).collect();
+    state.storage.reorder_memos(&pairs).map_err(|e| e.to_string())
+}
+
+// ─── Memo Archive Commands ──────────────────────────────────────
+
+#[tauri::command]
+fn archive_memo(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state.storage.archive_memo(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn unarchive_memo(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state.storage.unarchive_memo(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_archived_memos(
+    state: tauri::State<'_, AppState>,
+    filter: Option<MemoFilter>,
+) -> Result<Vec<Memo>, String> {
+    state
+        .storage
+        .query_archived_memos(&filter.unwrap_or_default())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn memo_archive_count(state: tauri::State<'_, AppState>) -> Result<i64, String> {
+    state.storage.memo_archive_count().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn permanent_delete_memo(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state.storage.permanent_delete_memo(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn purge_old_memo_archives(state: tauri::State<'_, AppState>, days: i64) -> Result<u64, String> {
+    state.storage.purge_old_memo_archives(days).map_err(|e| e.to_string())
 }
 
 /// Open a URL in the system default browser
@@ -483,6 +660,7 @@ pub fn run() {
                             } else {
                                 let _ = window.show();
                                 let _ = window.set_focus();
+                                let _ = handle2.emit("window-shown", "tray");
                             }
                         }
                     }
@@ -498,6 +676,12 @@ pub fn run() {
             update_entry,
             get_stats,
             clear_unpinned,
+            archive_entry,
+            unarchive_entry,
+            get_archived_entries,
+            archive_count,
+            permanent_delete,
+            purge_old_archives,
             copy_to_clipboard,
             get_setting,
             set_setting,
@@ -511,7 +695,16 @@ pub fn run() {
             delete_memo,
             toggle_memo_pin,
             memo_count,
+            reorder_memos,
+            archive_memo,
+            unarchive_memo,
+            get_archived_memos,
+            memo_archive_count,
+            permanent_delete_memo,
+            purge_old_memo_archives,
             set_always_on_top,
+            get_cursor_position,
+            paste_to_active_window,
             check_update,
             open_url,
         ])

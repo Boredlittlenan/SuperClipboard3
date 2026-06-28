@@ -1,29 +1,31 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Memo } from '../types';
-import { getMemos, createMemo, updateMemo, deleteMemo, toggleMemoPin } from '../api/memos';
+import { getMemos, createMemo, updateMemo, deleteMemo, toggleMemoPin, reorderMemos, archiveMemo, memoArchiveCount } from '../api/memos';
 import { useI18n } from '../i18n';
+import { formatRelativeTime } from '../utils';
 import { TrashIcon } from './icons/TrashIcon';
 
 interface Props {
   searchQuery: string;
+  rawPreview?: boolean;
+  archiveEnabled?: boolean;
   onCountChange?: (count: number) => void;
+  onArchiveCountChange?: (count: number) => void;
 }
 
-export default function MemoList({ searchQuery, onCountChange }: Props) {
+export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCountChange, onArchiveCountChange }: Props) {
   const { t } = useI18n();
   const [memos, setMemos] = useState<Memo[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [editBody, setEditBody] = useState('');
-  const [editTags, setEditTags] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
+  const [editDraft, setEditDraft] = useState<{ title: string; body: string; tags: string } | null>(null);
+  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
+  const [creatingNewId, setCreatingNewId] = useState<number | null>(null);
 
-  const editorRef = useRef<HTMLDivElement>(null);
-  const editingIdRef = useRef<number | null>(null);
-  editingIdRef.current = editingId;
-  // Prevents stale async fetches from overwriting a newer editor selection
-  const clickSeqRef = useRef(0);
+  const editingItemRef = useRef<HTMLDivElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // ─── Fetch memos ──────────────────────────────────────────
   const fetchMemos = useCallback(async () => {
     try {
       const filter = searchQuery.trim() ? { search: searchQuery.trim(), limit: 100 } : { limit: 100 };
@@ -39,183 +41,378 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     fetchMemos();
   }, [fetchMemos]);
 
-  // Read values directly from DOM — always fresh
-  const readEditorValues = () => {
-    if (!editorRef.current) return { title: editTitle, body: editBody, tags: editTags };
-    const inputs = editorRef.current.querySelectorAll('input');
-    const textarea = editorRef.current.querySelector('textarea');
-    return {
-      title: inputs[0]?.value ?? '',
-      body: textarea?.value ?? '',
-      tags: inputs[1]?.value ?? '',
-    };
-  };
+  // ─── Auto-save on draft change (300ms debounce) ───────────
+  useEffect(() => {
+    if (editingId === null || editDraft === null) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      updateMemo(editingId, editDraft.title, editDraft.body, editDraft.tags)
+        .then(() => {
+          setMemos(prev => prev.map(m =>
+            m.id === editingId ? { ...m, title: editDraft.title, body: editDraft.body, tags: editDraft.tags } : m
+          ));
+        })
+        .catch(err => console.error('Failed to save memo:', err));
+    }, 300);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [editDraft, editingId]);
 
-  // Instant save — fires on every keystroke
-  const saveNow = useCallback(async () => {
-    const id = editingIdRef.current;
-    if (id === null) return;
-    const { title, body, tags } = readEditorValues();
-    try {
-      await updateMemo(id, title, body, tags);
-    } catch (err) {
-      console.error('Failed to save memo:', err);
+  // ─── Click outside to exit editing ────────────────────────
+  useEffect(() => {
+    if (editingId === null) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (editingItemRef.current && !editingItemRef.current.contains(e.target as Node)) {
+        setEditingId(null);
+        setEditDraft(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [editingId]);
+
+  // ─── Auto-scroll editing item into view ───────────────────
+  useEffect(() => {
+    if (editingId !== null && editingItemRef.current) {
+      // Delay to let the editor expand first
+      setTimeout(() => {
+        editingItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 80);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
+
+  // ─── Editing handlers ─────────────────────────────────────
+  const startEditing = useCallback((memo: Memo) => {
+    setEditingId(memo.id);
+    setEditDraft({ title: memo.title, body: memo.body, tags: memo.tags });
   }, []);
 
-  // Switch editor to a memo, ALWAYS loading fresh data from DB
-  const handleMemoClick = async (memo: Memo) => {
-    if (editingIdRef.current === memo.id) return;
-
-    // 1. Save current memo's latest DOM values
-    if (editingIdRef.current !== null) {
-      const id = editingIdRef.current;
-      const vals = readEditorValues();
-      await updateMemo(id, vals.title, vals.body, vals.tags).catch(console.error);
-    }
-
-    // 2. Fetch fresh list from DB — preserving current visual order
-    const seq = ++clickSeqRef.current;
-    try {
-      const filter = searchQuery.trim()
-        ? { search: searchQuery.trim(), limit: 100 }
-        : { limit: 100 };
-      const freshList = await getMemos(filter);
-
-      if (clickSeqRef.current === seq) {
-        // Preserve current visual order: use current order as reference,
-        // only insert genuinely new memos at the top
-        const currentIds = new Set(memos.map(m => m.id));
-        const freshMap = new Map(freshList.map(m => [m.id, m]));
-        const newMemos = freshList.filter(m => !currentIds.has(m.id));
-        const preserved = memos
-          .filter(m => freshMap.has(m.id))
-          .map(m => freshMap.get(m.id)!);
-        setMemos([...newMemos, ...preserved]);
-
-        const fresh = freshMap.get(memo.id);
-        if (fresh) {
-          setIsCreating(false);
-          setEditingId(fresh.id);
-          setEditTitle(fresh.title);
-          setEditBody(fresh.body);
-          setEditTags(fresh.tags);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch memos:', err);
-    }
-  };
-
-  const handleCreate = () => {
-    // Save current editing memo first
-    if (editingIdRef.current !== null) {
-      const id = editingIdRef.current;
-      const vals = readEditorValues();
-      updateMemo(id, vals.title, vals.body, vals.tags).catch(console.error);
-    }
-    ++clickSeqRef.current; // invalidate any pending fetch
-    setIsCreating(true);
+  const stopEditing = useCallback(() => {
     setEditingId(null);
-    setEditTitle('');
-    setEditBody('');
-    setEditTags('');
+    setEditDraft(null);
+  }, []);
+
+  const handleDraftChange = (field: 'title' | 'body' | 'tags', value: string) => {
+    setEditDraft(prev => prev ? { ...prev, [field]: value } : null);
   };
 
-  const handleSaveNew = async () => {
-    const { title, body, tags } = readEditorValues();
-    if (!title.trim() && !body.trim()) {
-      setIsCreating(false);
-      return;
-    }
+  // ─── Create new memo (smart toggle) ───────────────────────
+  const handleCreate = async () => {
     try {
-      await createMemo(title.trim(), body.trim(), tags.trim());
-      setIsCreating(false);
-      setEditTitle('');
-      setEditBody('');
-      setEditTags('');
-      fetchMemos();
+      // Case 1: Currently editing a newly-created memo
+      if (editingId !== null && editingId === creatingNewId) {
+        const hasContent = editDraft && (editDraft.title.trim() || editDraft.body.trim());
+        if (hasContent) {
+          // Auto-save already handles persistence; just close editor
+          await updateMemo(editingId, editDraft!.title, editDraft!.body, editDraft!.tags);
+        } else {
+          // Empty memo — delete it
+          await deleteMemo(editingId);
+          setMemos(prev => prev.filter(m => m.id !== editingId));
+        }
+        setEditingId(null);
+        setEditDraft(null);
+        setCreatingNewId(null);
+        onCountChange?.(memos.length - (hasContent ? 0 : 1));
+        return;
+      }
+
+      // Case 2: Editing an existing memo — let auto-save handle it, then create new
+      if (editingId !== null) {
+        setEditingId(null);
+        setEditDraft(null);
+      }
+
+      // Case 3: Not editing — create new memo and start editing
+      const newMemo = await createMemo('', '', '');
+      setMemos(prev => [newMemo, ...prev]);
+      setCreatingNewId(newMemo.id);
+      startEditing(newMemo);
     } catch (err) {
       console.error('Failed to create memo:', err);
     }
   };
 
-  const handleCreateFieldBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (!isCreating) return;
-
-    const nextFocused = e.relatedTarget;
-    if (nextFocused instanceof Node && editorRef.current?.contains(nextFocused)) {
-      return;
-    }
-
-    handleSaveNew();
-  };
-
+  // ─── Delete / Archive ──────────────────────────────────────
   const handleDelete = async (id: number) => {
     try {
-      await deleteMemo(id);
-      if (editingIdRef.current === id) {
+      if (archiveEnabled) {
+        await archiveMemo(id);
+        setMemos(prev => prev.filter(m => m.id !== id));
+        // Refresh archive count
+        const count = await memoArchiveCount();
+        onArchiveCountChange?.(count);
+      } else {
+        await deleteMemo(id);
+      }
+      if (editingId === id) {
         setEditingId(null);
-        setIsCreating(false);
+        setEditDraft(null);
       }
       fetchMemos();
     } catch (err) {
-      console.error('Failed to delete memo:', err);
+      console.error('Failed to delete/archive memo:', err);
     }
   };
 
+  // ─── Toggle pin ───────────────────────────────────────────
   const handleTogglePin = async (id: number) => {
     try {
       await toggleMemoPin(id);
       fetchMemos();
     } catch (err) {
-      console.error('Failed to toggle memo pin:', err);
+      console.error('Failed to toggle pin:', err);
     }
   };
 
-  // onChange: update React state for controlled inputs + save to DB immediately
-  const onFieldChange = (setter: (v: string) => void) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setter(e.target.value);
-      saveNow();
+  // ─── Pointer-based Drag-and-drop ────────────────────────────
+  const canDrag = editingId === null && searchQuery.trim() === '';
+  const [dragGhostPos, setDragGhostPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragGhostContent, setDragGhostContent] = useState<string>('');
+  const dragActiveRef = useRef(false);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent, id: number) => {
+    if (!canDrag) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const memo = memos.find(m => m.id === id);
+    if (!memo) return;
+    dragActiveRef.current = true;
+    setDraggedId(id);
+    setDragGhostPos({ x: e.clientX, y: e.clientY });
+    setDragGhostContent(memo.title || memo.body.slice(0, 40) || '(untitled)');
+  }, [canDrag, memos]);
+
+  useEffect(() => {
+    if (draggedId === null) return;
+
+    const onMove = (e: PointerEvent) => {
+      if (!dragActiveRef.current) return;
+      e.preventDefault();
+      setDragGhostPos({ x: e.clientX, y: e.clientY });
+
+      // Temporarily hide ghost to get element underneath
+      const ghost = document.querySelector('.memo-drag-ghost');
+      if (ghost) (ghost as HTMLElement).style.display = 'none';
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      if (ghost) (ghost as HTMLElement).style.display = '';
+
+      if (el) {
+        const entry = el.closest('.memo-entry[data-memo-id]');
+        if (entry) {
+          const targetId = Number(entry.getAttribute('data-memo-id'));
+          if (targetId && targetId !== draggedId && !memos.find(m => m.id === targetId)?.pinned) {
+            setDragOverId(targetId);
+          } else {
+            setDragOverId(null);
+          }
+        } else {
+          setDragOverId(null);
+        }
+      }
     };
 
-  const editor = (isCreating || editingId !== null) ? (
-    <div ref={editorRef} style={styles.editor}>
-      <input
-        style={styles.editorTitle}
-        placeholder={t.memoTitlePlaceholder}
-        value={editTitle}
-        onChange={onFieldChange(setEditTitle)}
-        onBlur={handleCreateFieldBlur}
-        autoFocus
-      />
-      <textarea
-        style={styles.editorBody}
-        placeholder={t.memoBodyPlaceholder}
-        value={editBody}
-        onChange={onFieldChange(setEditBody)}
-        onBlur={handleCreateFieldBlur}
-        rows={4}
-      />
-      <input
-        style={styles.editorTags}
-        placeholder={t.memoTagsPlaceholder}
-        value={editTags}
-        onChange={onFieldChange(setEditTags)}
-        onBlur={handleCreateFieldBlur}
-      />
-    </div>
-  ) : null;
+    const onUp = () => {
+      dragActiveRef.current = false;
 
-  if (memos.length === 0 && !isCreating) {
+      setDraggedId(prevDragged => {
+        setDragOverId(prevOver => {
+          if (prevDragged !== null && prevOver !== null && prevDragged !== prevOver) {
+            const unpinned = memos.filter(m => !m.pinned);
+            const dragIdx = unpinned.findIndex(m => m.id === prevDragged);
+            const dropIdx = unpinned.findIndex(m => m.id === prevOver);
+            if (dragIdx !== -1 && dropIdx !== -1) {
+              const reordered = [...unpinned];
+              const [moved] = reordered.splice(dragIdx, 1);
+              reordered.splice(dropIdx, 0, moved);
+
+              const maxOrder = Math.max(...unpinned.map(m => m.sort_order), 0);
+              const orders = reordered.map((m, i) => ({
+                id: m.id,
+                sort_order: maxOrder - i,
+              }));
+
+              setMemos(prev => {
+                const updated = prev.map(m => {
+                  const found = orders.find(o => o.id === m.id);
+                  return found ? { ...m, sort_order: found.sort_order } : m;
+                });
+                return updated.sort((a, b) => {
+                  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+                  return b.sort_order - a.sort_order;
+                });
+              });
+
+              reorderMemos(orders).catch(err => {
+                console.error('Reorder failed, refreshing:', err);
+                fetchMemos();
+              });
+            }
+          }
+          return null; // reset dragOverId
+        });
+        return null; // reset draggedId
+      });
+
+      setDragGhostPos(null);
+      setDragGhostContent('');
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+  }, [draggedId, memos, fetchMemos]);
+
+  // ─── Render helpers ───────────────────────────────────────
+  const pinnedMemos = memos.filter(m => m.pinned);
+  const unpinnedMemos = memos.filter(m => !m.pinned);
+
+  const renderMemoItem = (memo: Memo, draggable: boolean) => {
+    const isEditing = editingId === memo.id;
+    const isDragging = draggedId === memo.id;
+    const isDragOver = dragOverId === memo.id;
+
+    // Auto-size textarea rows based on body content
+    const bodyLines = editDraft ? editDraft.body.split('\n').length : 1;
+    const textareaRows = Math.min(Math.max(bodyLines, 3), 20);
+
+    return (
+      <div
+        key={memo.id}
+        className="memo-entry"
+        data-memo-id={memo.id}
+        ref={isEditing ? editingItemRef : undefined}
+        style={{
+          ...styles.memoItem,
+          ...(isEditing ? styles.memoItemActive : {}),
+          ...(isDragging ? styles.memoItemDragging : {}),
+          ...(isDragOver ? { borderTop: '2px solid var(--accent)' } : {}),
+          borderLeft: memo.pinned ? '3px solid var(--accent)' : '3px solid transparent',
+        }}
+      >
+        <div style={styles.memoContent}>
+          {/* Header row */}
+          <div style={styles.memoHeader}>
+            {isEditing && editDraft ? (
+              <input
+                style={styles.editTitle}
+                value={editDraft.title}
+                onChange={(e) => handleDraftChange('title', e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') stopEditing(); }}
+                placeholder={t.memoTitlePlaceholder}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="memo-selectable" style={styles.memoTitle}>{memo.title || '(untitled)'}</span>
+            )}
+            <div className="memo-actions" style={styles.memoActions}>
+              {/* Drag handle — always visible for unpinned items */}
+              {draggable && (
+                <span
+                  style={{
+                    ...styles.dragHandle,
+                    ...(canDrag ? {} : styles.dragHandleDisabled),
+                  }}
+                  onPointerDown={(e) => handlePointerDown(e, memo.id)}
+                >
+                  {'\u2261'}
+                </span>
+              )}
+              {/* Action buttons — CSS handles visibility on hover */}
+              {!isEditing && (
+                <div style={styles.hoverActions}>
+                  <button
+                    style={styles.actionBtn}
+                    onClick={(e) => { e.stopPropagation(); startEditing(memo); }}
+                    title={t.edit}
+                  >
+                    {'\u270E'}
+                  </button>
+                  <button
+                    style={{
+                      ...styles.actionBtn,
+                      ...(memo.pinned ? styles.actionBtnActive : {}),
+                    }}
+                    onClick={(e) => { e.stopPropagation(); handleTogglePin(memo.id); }}
+                    title={memo.pinned ? t.unpin : t.pin}
+                  >
+                    {'\uD83D\uDCCC'}
+                  </button>
+                  <button
+                    style={{ ...styles.actionBtn, ...styles.deleteBtn }}
+                    onClick={(e) => { e.stopPropagation(); handleDelete(memo.id); }}
+                    title={archiveEnabled ? t.archive : t.delete}
+                  >
+                    {archiveEnabled ? '\uD83D\uDCE6' : <TrashIcon />}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Content area */}
+          {isEditing && editDraft ? (
+            <div style={styles.inlineEditor} onClick={(e) => e.stopPropagation()}>
+              <textarea
+                style={styles.editBody}
+                value={editDraft.body}
+                onChange={(e) => handleDraftChange('body', e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') stopEditing(); }}
+                placeholder={t.memoBodyPlaceholder}
+                rows={textareaRows}
+                autoFocus={!memo.title}
+              />
+              <input
+                style={styles.editTags}
+                value={editDraft.tags}
+                onChange={(e) => handleDraftChange('tags', e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') stopEditing(); }}
+                placeholder={t.memoTagsPlaceholder}
+              />
+            </div>
+          ) : (
+            <>
+              {rawPreview ? (
+                <pre className="memo-selectable" style={styles.rawPreview}>{memo.body || '\u00A0'}</pre>
+              ) : (
+                <p className="memo-selectable memo-preview" style={styles.memoPreview}>
+                  {memo.body.length > 100 ? memo.body.slice(0, 100) + '...' : memo.body || '\u00A0'}
+                </p>
+              )}
+              {memo.tags && (
+                <div style={styles.tags}>
+                  {memo.tags.split(',').filter(Boolean).map((tag, i) => (
+                    <span key={i} style={styles.tag}>{tag.trim()}</span>
+                  ))}
+                </div>
+              )}
+              {/* Timestamps */}
+              <div style={styles.timestampRow}>
+                <span className="memo-time" style={styles.timestamp}>{formatRelativeTime(memo.created_at, t)}</span>
+                {memo.updated_at && memo.updated_at !== memo.created_at && (
+                  <span style={styles.editedBadge}>
+                    {t.editedAt(formatRelativeTime(memo.updated_at, t))}
+                  </span>
+                )}
+                {memo.pinned && <span style={styles.pinBadge}>{'\uD83D\uDCCC'}</span>}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── Empty state ──────────────────────────────────────────
+  if (memos.length === 0) {
     return (
       <div style={styles.container}>
         <div style={{ padding: '8px 12px' }}>
           <button style={styles.newBtn} onClick={handleCreate}>+ {t.memoNew}</button>
         </div>
-        {editor}
         <div style={styles.empty}>
           <span style={styles.emptyIcon}>{'\uD83D\uDCDD'}</span>
           <span style={styles.emptyText}>{t.memoEmpty}</span>
@@ -225,60 +422,41 @@ export default function MemoList({ searchQuery, onCountChange }: Props) {
     );
   }
 
+  // ─── Main render ──────────────────────────────────────────
   return (
     <div style={styles.container}>
       <div style={{ padding: '8px 12px', flexShrink: 0 }}>
         <button style={styles.newBtn} onClick={handleCreate}>+ {t.memoNew}</button>
       </div>
-      {editor}
       <div style={styles.list}>
-        {memos.map((memo) => (
-          <div
-            key={memo.id}
-            style={{
-              ...styles.memoItem,
-              ...(editingId === memo.id ? styles.memoItemActive : {}),
-              borderLeft: memo.pinned ? '3px solid var(--accent)' : '3px solid transparent',
-            }}
-            onClick={() => handleMemoClick(memo)}
-          >
-            <div style={styles.memoContent}>
-              <div style={styles.memoHeader}>
-                <span style={styles.memoTitle}>{memo.title || '(untitled)'}</span>
-                <div style={styles.memoActions}>
-                  <button
-                    style={{
-                      ...styles.actionBtn,
-                      ...(memo.pinned ? styles.actionBtnActive : {}),
-                    }}
-                    onClick={(e) => { e.stopPropagation(); handleTogglePin(memo.id); }}
-                    title="Pin"
-                  >
-                    {'\uD83D\uDCCC'}
-                  </button>
-                  <button
-                    style={styles.actionBtn}
-                    onClick={(e) => { e.stopPropagation(); handleDelete(memo.id); }}
-                    title={t.delete}
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
-              </div>
-              <p style={styles.memoPreview}>
-                {memo.body.length > 100 ? memo.body.slice(0, 100) + '...' : memo.body || '\u00A0'}
-              </p>
-              {memo.tags && (
-                <div style={styles.tags}>
-                  {memo.tags.split(',').filter(Boolean).map((tag, i) => (
-                    <span key={i} style={styles.tag}>{tag.trim()}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+        {pinnedMemos.map(m => renderMemoItem(m, false))}
+        {unpinnedMemos.map(m => renderMemoItem(m, true))}
       </div>
+      {/* Floating ghost clone that follows cursor during drag */}
+      {dragGhostPos && draggedId !== null && (
+        <div className="memo-drag-ghost" style={{
+          position: 'fixed',
+          left: dragGhostPos.x + 12,
+          top: dragGhostPos.y - 12,
+          pointerEvents: 'none',
+          zIndex: 9999,
+          background: 'var(--memo-contrast-bg, #f5f5f5)',
+          border: '1px solid var(--accent)',
+          borderRadius: '6px',
+          padding: '6px 12px',
+          fontSize: '12px',
+          fontWeight: 500,
+          color: 'var(--text-primary)',
+          maxWidth: '200px',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          opacity: 0.9,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        }}>
+          {dragGhostContent}
+        </div>
+      )}
     </div>
   );
 }
@@ -301,43 +479,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     cursor: 'pointer',
     transition: 'all 0.15s',
-  },
-  editor: {
-    padding: '8px 12px',
-    borderBottom: '1px solid var(--border)',
-    background: 'var(--surface)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    flexShrink: 0,
-  },
-  editorTitle: {
-    border: 'none',
-    outline: 'none',
-    background: 'transparent',
-    fontSize: '13px',
-    fontWeight: 600,
-    color: 'var(--text-primary)',
-    padding: '4px 0',
-  },
-  editorBody: {
-    border: 'none',
-    outline: 'none',
-    background: 'transparent',
-    fontSize: '12px',
-    color: 'var(--text-primary)',
-    resize: 'none' as const,
-    fontFamily: 'inherit',
-    padding: '4px 0',
-    lineHeight: 1.5,
-  },
-  editorTags: {
-    border: 'none',
-    outline: 'none',
-    background: 'transparent',
-    fontSize: '11px',
-    color: '#8b5cf6',
-    padding: '4px 0',
   },
   list: {
     flex: 1,
@@ -366,13 +507,20 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '11px',
     color: 'var(--text-muted)',
   },
+
+  // ─── Memo item ────────────────────────────────────────────
   memoItem: {
     padding: '10px 12px',
     borderBottom: '1px solid var(--border)',
-    cursor: 'pointer',
-    transition: 'background 0.1s',
+    transition: 'background 0.15s ease, border-top 0.15s ease',
+    userSelect: 'none' as const,
+    cursor: 'default',
   },
   memoItemActive: {
+    background: 'var(--hover-bg)',
+  },
+  memoItemDragging: {
+    opacity: 0.4,
     background: 'var(--hover-bg)',
   },
   memoContent: {
@@ -400,8 +548,30 @@ const styles: Record<string, React.CSSProperties> = {
   },
   memoActions: {
     display: 'flex',
+    alignItems: 'center',
     gap: '4px',
     flexShrink: 0,
+  },
+
+  // ─── Drag handle ──────────────────────────────────────────
+  dragHandle: {
+    fontSize: '14px',
+    color: 'var(--text-muted)',
+    opacity: 0.4,
+    cursor: 'grab',
+    lineHeight: 1,
+    padding: '0 2px',
+    userSelect: 'none' as const,
+  },
+  dragHandleDisabled: {
+    cursor: 'default',
+    opacity: 0.2,
+  },
+
+  // ─── Hover action buttons ─────────────────────────────────
+  hoverActions: {
+    display: 'flex',
+    gap: '4px',
   },
   actionBtn: {
     border: 'none',
@@ -418,6 +588,11 @@ const styles: Record<string, React.CSSProperties> = {
     opacity: 1,
     color: 'var(--accent)',
   },
+  deleteBtn: {
+    color: '#ef4444',
+  },
+
+  // ─── Preview (non-editing) ────────────────────────────────
   memoPreview: {
     fontSize: '13px',
     color: 'var(--text-secondary)',
@@ -427,6 +602,20 @@ const styles: Record<string, React.CSSProperties> = {
     WebkitLineClamp: 2,
     WebkitBoxOrient: 'vertical',
     overflow: 'hidden',
+  },
+  rawPreview: {
+    margin: 0,
+    fontSize: '12px',
+    lineHeight: 1.4,
+    color: 'var(--text-primary)',
+    fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
+    background: 'var(--code-bg)',
+    padding: '6px 8px',
+    borderRadius: '4px',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-all',
+    maxHeight: '200px',
+    overflowY: 'auto',
   },
   tags: {
     display: 'flex',
@@ -442,5 +631,65 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--accent)',
     fontSize: '10px',
     fontWeight: 500,
+  },
+  timestampRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginTop: '2px',
+  },
+  timestamp: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+  },
+  editedBadge: {
+    fontSize: '10px',
+    color: 'var(--memo-contrast)',
+    background: 'var(--memo-contrast-bg, rgba(236,95,158,0.08))',
+    padding: '1px 6px',
+    borderRadius: '8px',
+    fontWeight: 500,
+  },
+  pinBadge: {
+    fontSize: '12px',
+  },
+
+  // ─── Inline editor ────────────────────────────────────────
+  inlineEditor: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  editTitle: {
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+    padding: '4px 0',
+    flex: 1,
+    minWidth: 0,
+  },
+  editBody: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    fontSize: '12px',
+    color: 'var(--text-primary)',
+    resize: 'vertical' as const,
+    fontFamily: 'inherit',
+    padding: '4px 0',
+    lineHeight: 1.5,
+  },
+  editTags: {
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    fontSize: '11px',
+    color: '#8b5cf6',
+    padding: '4px 0',
   },
 };

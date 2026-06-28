@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import type { ClipboardEntry } from '../types';
 import { getCategoryColor, getCategoryLabel, formatRelativeTime } from '../utils';
 import { useI18n } from '../i18n';
@@ -11,10 +12,13 @@ interface Props {
   onTogglePin: (id: number) => void;
   onEdit: (id: number, content: string) => Promise<void>;
   rawPreview?: boolean;
+  isArchive?: boolean;
+  archiveEnabled?: boolean;
+  onRestore?: (id: number) => void;
+  onPermanentDelete?: (id: number) => void;
 }
 
-export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, onEdit, rawPreview }: Props) {
-  const [hovered, setHovered] = useState(false);
+export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, onEdit, rawPreview, isArchive, archiveEnabled, onRestore, onPermanentDelete }: Props) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(entry.content);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -24,7 +28,18 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
 
   const categoryColor = getCategoryColor(entry.category);
   const isImage = entry.category === 'image';
+  const isLink = entry.category === 'link';
   const hasOriginal = entry.original_content != null;
+
+  const handleOpenInBrowser = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    let url = entry.content.trim();
+    // Prepend https:// if no scheme present
+    if (!/^https?:\/\//i.test(url) && !/^ftp:\/\//i.test(url)) {
+      url = 'https://' + url;
+    }
+    invoke('open_url', { url }).catch(console.error);
+  }, [entry.content]);
 
   const handleEditClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -68,12 +83,8 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
 
   return (
     <div
-      style={{
-        ...styles.container,
-        ...(hovered && !editing ? styles.containerHover : {}),
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="clipboard-entry"
+      style={styles.container}
       onClick={() => !editing && onCopy(entry.id)}
       title={editing ? undefined : t.clickToCopy}
     >
@@ -85,6 +96,7 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
         <div style={styles.header}>
           <div style={styles.headerLeft}>
             <span
+              className="entry-category-badge"
               style={{
                 ...styles.categoryBadge,
                 background: `${categoryColor}20`,
@@ -93,40 +105,76 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
             >
               {getCategoryLabel(entry.category, t)}
             </span>
-            {hovered && !editing && (
-              <div style={styles.inlineActions}>
-                {!isImage && (
-                  <button
-                    style={styles.actionBtn}
-                    onClick={handleEditClick}
-                    title={t.edit}
-                  >
-                    {'\u270E'}
-                  </button>
+            {!editing && (
+              <div className="entry-actions" style={styles.inlineActions}>
+                {isArchive ? (
+                  <>
+                    <button
+                      style={styles.actionBtn}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRestore?.(entry.id);
+                      }}
+                      title={t.restore}
+                    >
+                      {'\u21A9'}
+                    </button>
+                    <button
+                      style={{ ...styles.actionBtn, ...styles.deleteBtn }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPermanentDelete?.(entry.id);
+                      }}
+                      title={t.permanentDelete}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {isLink && (
+                      <button
+                        style={styles.actionBtn}
+                        onClick={handleOpenInBrowser}
+                        title={t.openInBrowser || 'Open in browser'}
+                      >
+                        {'\uD83C\uDF10'}
+                      </button>
+                    )}
+                    {!isImage && (
+                      <button
+                        style={styles.actionBtn}
+                        onClick={handleEditClick}
+                        title={t.edit}
+                      >
+                        {'\u270E'}
+                      </button>
+                    )}
+                    <button
+                      style={{
+                        ...styles.actionBtn,
+                        ...(entry.pinned ? styles.actionBtnActive : {}),
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTogglePin(entry.id);
+                      }}
+                      title={entry.pinned ? t.unpin : t.pin}
+                    >
+                      {'\uD83D\uDCCC'}
+                    </button>
+                    <button
+                      style={{ ...styles.actionBtn, ...(archiveEnabled ? styles.archiveBtn : styles.deleteBtn) }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(entry.id);
+                      }}
+                      title={archiveEnabled ? t.archiveSetting : t.delete}
+                    >
+                      {archiveEnabled ? '\uD83D\uDCC1' : <TrashIcon />}
+                    </button>
+                  </>
                 )}
-                <button
-                  style={{
-                    ...styles.actionBtn,
-                    ...(entry.pinned ? styles.actionBtnActive : {}),
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTogglePin(entry.id);
-                  }}
-                  title={entry.pinned ? t.unpin : t.pin}
-                >
-                  {'\uD83D\uDCCC'}
-                </button>
-                <button
-                  style={{ ...styles.actionBtn, ...styles.deleteBtn }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(entry.id);
-                  }}
-                  title={t.delete}
-                >
-                  <TrashIcon />
-                </button>
               </div>
             )}
           </div>
@@ -136,8 +184,18 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
                 {t.editedAt(formatRelativeTime(entry.updated_at, t))}
               </span>
             )}
-            <span style={styles.time}>{formatRelativeTime(entry.created_at, t)}</span>
-            {entry.pinned && <span style={styles.pinBadge}>{'\u{1F4CC}'}</span>}
+            <span className="entry-time" style={styles.time}>{formatRelativeTime(entry.created_at, t)}</span>
+            {entry.pinned && !isArchive && <span style={styles.pinBadge}>{'\u{1F4CC}'}</span>}
+            {isArchive && entry.archived_at && (
+              <span style={styles.archiveTimer}>
+                {(() => {
+                  const archivedDate = new Date(entry.archived_at);
+                  const expiryDate = new Date(archivedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+                  const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+                  return t.daysRemaining(daysLeft);
+                })()}
+              </span>
+            )}
           </div>
         </div>
 
@@ -167,7 +225,7 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
             </div>
           </div>
         ) : (
-          <div style={styles.preview}>
+          <div className="entry-preview" style={styles.preview}>
             {isImage ? (
               <img
                 src={`data:image/png;base64,${entry.content}`}
@@ -185,7 +243,7 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
         )}
 
         {/* Original content collapsible */}
-        {hasOriginal && !editing && (
+        {hasOriginal && !editing && !isArchive && (
           <div style={styles.originalSection} onClick={(e) => e.stopPropagation()}>
             <button style={styles.originalToggle} onClick={handleToggleOriginal}>
               <span style={{
@@ -213,11 +271,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     borderBottom: '1px solid var(--border)',
     cursor: 'pointer',
-    transition: 'background 0.12s ease',
     position: 'relative',
-  },
-  containerHover: {
-    background: 'var(--hover-bg)',
   },
   categoryBar: {
     width: '3px',
@@ -272,6 +326,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
   pinBadge: {
     fontSize: '12px',
+  },
+  archiveTimer: {
+    fontSize: '10px',
+    color: '#f59e0b',
+    background: 'rgba(245,158,11,0.1)',
+    padding: '1px 6px',
+    borderRadius: '8px',
+    fontWeight: 500,
+  },
+  archiveBtn: {
+    color: '#f59e0b',
   },
   preview: {
     overflow: 'hidden',

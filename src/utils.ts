@@ -31,8 +31,8 @@ export function getCategoryLabel(category: Category, t: Translations): string {
 /** Get tab label from translations */
 export function getTabLabel(tab: FilterTab, t: Translations): string {
   if (tab === 'memo') return t.memoTab;
-  const map: Record<FilterTab, string> = {
-    memo: t.memoTab,
+  if (tab === 'archive') return t.tabArchive;
+  const map: Record<Exclude<FilterTab, 'memo' | 'archive'>, string> = {
     all: t.tabAll,
     text: t.tabText,
     link: t.tabLink,
@@ -41,7 +41,7 @@ export function getTabLabel(tab: FilterTab, t: Translations): string {
     email: t.tabEmail,
     file_path: t.tabPath,
   };
-  return map[tab] ?? tab;
+  return map[tab as Exclude<FilterTab, 'memo' | 'archive'>] ?? tab;
 }
 
 /** Format relative time string using translations */

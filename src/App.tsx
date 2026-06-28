@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { ClipboardEntry, FilterTab, QueryFilter, Stats } from './types';
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import type { ClipboardEntry, FilterTab, QueryFilter, Stats, Memo } from './types';
 import {
   getEntries,
   deleteEntry,
@@ -9,9 +11,15 @@ import {
   copyToClipboard,
   updateEntry,
   onClipboardChanged,
+  getArchivedEntries,
+  archiveCount,
+  unarchiveEntry,
+  permanentDelete,
+  purgeOldArchives,
 } from './api/clipboard';
-import { getShortcut, getSetting, checkUpdate } from './api/settings';
-import { memoCount } from './api/memos';
+import { getShortcut, getSetting, checkUpdate, getCursorPosition, pasteToActiveWindow } from './api/settings';
+import { memoCount, getArchivedMemos, memoArchiveCount, unarchiveMemo, permanentDeleteMemo, purgeOldMemoArchives } from './api/memos';
+import { formatRelativeTime } from './utils';
 import { I18nProvider, useI18n } from './i18n';
 import CategoryTabs from './components/CategoryTabs';
 import ClipboardList from './components/ClipboardList';
@@ -27,6 +35,45 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function ArchivedMemoItem({ memo, onRestore, onPermanentDelete }: { memo: Memo; onRestore: () => void; onPermanentDelete: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="memo-entry" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: 'var(--memo-contrast-bg)', padding: '4px 6px', borderRadius: '4px', margin: '-2px -4px 2px -4px' }}>
+          <span className="memo-selectable" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {memo.title || '(untitled)'}
+          </span>
+          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+            <button style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontSize: '12px', cursor: 'pointer', padding: '0 4px' }} onClick={onRestore} title={t.restore}>
+              {'\u21A9\uFE0F'}
+            </button>
+            <button style={{ border: 'none', background: 'transparent', color: '#ef4444', fontSize: '12px', cursor: 'pointer', padding: '0 4px' }} onClick={onPermanentDelete} title={t.permanentDelete}>
+              {'\u2716'}
+            </button>
+          </div>
+        </div>
+        <p className="memo-selectable memo-preview" style={{ fontSize: '13px', color: '#525252', margin: 0, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>
+          {memo.body.length > 100 ? memo.body.slice(0, 100) + '...' : memo.body || '\u00A0'}
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+          <span className="memo-time" style={{ fontSize: '11px', color: '#999999' }}>{formatRelativeTime(memo.created_at, t)}</span>
+          {memo.archived_at && (
+            <span style={{ fontSize: '10px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '1px 6px', borderRadius: '8px', fontWeight: 500 }}>
+              {(() => {
+                const archivedDate = new Date(memo.archived_at!);
+                const expiryDate = new Date(archivedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+                const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+                return t.daysRemaining(daysLeft);
+              })()}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppContent() {
   const { t } = useI18n();
   const [entries, setEntries] = useState<ClipboardEntry[]>([]);
@@ -40,6 +87,8 @@ function AppContent() {
   const [memoCountState, setMemoCountState] = useState<number | null>(null);
   const [memoListCount, setMemoListCount] = useState<number>(0);
   const [memoColor, setMemoColor] = useState<string | null>(null);
+  const [archiveEnabled, setArchiveEnabled] = useState(false);
+  const [archiveCountState, setArchiveCountState] = useState<number | null>(null);
   const [rawPreview, setRawPreview] = useState(false);
   const [themeAccent, setThemeAccent] = useState('default');
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
@@ -47,6 +96,11 @@ function AppContent() {
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   );
   const searchRef = useRef<HTMLInputElement>(null);
+  const [archiveSubTab, setArchiveSubTab] = useState<'clipboard' | 'memos'>('clipboard');
+  const [archivedMemos, setArchivedMemos] = useState<Memo[]>([]);
+  const [memoArchiveCountState, setMemoArchiveCountState] = useState<number>(0);
+  const [openedViaShortcut, setOpenedViaShortcut] = useState(false);
+  const [followMode, setFollowMode] = useState(true);
 
   // Fetch current shortcut on mount
   useEffect(() => {
@@ -66,6 +120,11 @@ function AppContent() {
   // Load raw_preview setting on mount
   useEffect(() => {
     getSetting('raw_preview').then((v) => setRawPreview(v === 'true')).catch(console.error);
+  }, []);
+
+  // Load archive_enabled setting on mount
+  useEffect(() => {
+    getSetting('archive_enabled').then((v) => setArchiveEnabled(v === 'true')).catch(console.error);
   }, []);
 
   // Load theme accent setting on mount
@@ -136,18 +195,45 @@ function AppContent() {
     }).catch(console.error);
   }, []);
 
+  // Load follow_mode setting on mount
+  useEffect(() => {
+    getSetting('follow_mode').then((v) => setFollowMode(v !== 'false')).catch(console.error);
+  }, []);
+
+  // Listen for window-shown events to track how the window was opened
+  useEffect(() => {
+    const unlisten = listen<string>('window-shown', (event) => {
+      const source = event.payload;
+      setOpenedViaShortcut(source === 'shortcut');
+
+      // Follow mode: position window near cursor when opened via shortcut
+      if (source === 'shortcut' && followMode) {
+        getCursorPosition().then(({ x, y }) => {
+          const win = getCurrentWindow();
+          win.setPosition({ x: x + 10, y: y - 110 }).catch(console.error);
+        }).catch(console.error);
+      }
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [followMode]);
+
   // Fetch entries based on current filter
   const fetchEntries = useCallback(async () => {
     const filter: QueryFilter = { limit: 100 };
-    if (activeTab !== 'all' && activeTab !== 'memo') {
+    if (activeTab !== 'all' && activeTab !== 'memo' && activeTab !== 'archive') {
       filter.category = activeTab;
     }
     if (searchQuery.trim()) {
       filter.search = searchQuery.trim();
     }
     try {
-      const data = await getEntries(filter);
-      setEntries(data);
+      if (activeTab === 'archive') {
+        const data = await getArchivedEntries(filter);
+        setEntries(data);
+      } else {
+        const data = await getEntries(filter);
+        setEntries(data);
+      }
     } catch (err) {
       console.error('Failed to fetch entries:', err);
     }
@@ -174,13 +260,51 @@ function AppContent() {
     }
   }, [memoEnabled]);
 
+  // Fetch archive count
+  const fetchArchiveCount = useCallback(async () => {
+    if (!archiveEnabled) return;
+    try {
+      const count = await archiveCount();
+      setArchiveCountState(count);
+    } catch (err) {
+      console.error('Failed to fetch archive count:', err);
+    }
+  }, [archiveEnabled]);
+
+  // Fetch memo archive count
+  const fetchMemoArchiveCount = useCallback(async () => {
+    if (!archiveEnabled) return;
+    try {
+      const count = await memoArchiveCount();
+      setMemoArchiveCountState(count);
+    } catch (err) {
+      console.error('Failed to fetch memo archive count:', err);
+    }
+  }, [archiveEnabled]);
+
+  // Fetch archived memos
+  const fetchArchivedMemos = useCallback(async () => {
+    if (!archiveEnabled) return;
+    try {
+      const data = await getArchivedMemos({ limit: 100 });
+      setArchivedMemos(data);
+    } catch (err) {
+      console.error('Failed to fetch archived memos:', err);
+    }
+  }, [archiveEnabled]);
+
   // Initial load
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
       try {
-        await Promise.all([fetchEntries(), fetchStats(), fetchMemoCount()]);
+        await Promise.all([fetchEntries(), fetchStats(), fetchMemoCount(), fetchArchiveCount(), fetchMemoArchiveCount()]);
+        // Purge archives older than 30 days on startup
+        if (archiveEnabled) {
+          purgeOldArchives(30).catch(() => {});
+          purgeOldMemoArchives(30).catch(() => {});
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -193,7 +317,7 @@ function AppContent() {
     return () => {
       cancelled = true;
     };
-  }, [fetchEntries, fetchStats, fetchMemoCount]);
+  }, [fetchEntries, fetchStats, fetchMemoCount, fetchArchiveCount, fetchMemoArchiveCount, archiveEnabled]);
 
   // Listen for real-time clipboard events
   useEffect(() => {
@@ -204,6 +328,8 @@ function AppContent() {
       fetchEntries();
       fetchStats();
       fetchMemoCount();
+      fetchArchiveCount();
+      fetchMemoArchiveCount();
     }).then((fn) => {
       unlisten = fn;
     });
@@ -211,7 +337,7 @@ function AppContent() {
     return () => {
       unlisten?.();
     };
-  }, [fetchEntries, fetchStats, fetchMemoCount]);
+  }, [fetchEntries, fetchStats, fetchMemoCount, fetchArchiveCount, fetchMemoArchiveCount]);
 
   // Keyboard shortcut: focus search with Ctrl+F
   useEffect(() => {
@@ -228,25 +354,32 @@ function AppContent() {
   // Actions
   const handleCopy = useCallback(async (id: number) => {
     try {
-      await copyToClipboard(id);
+      if (openedViaShortcut) {
+        // Paste directly to the active window (hides window + simulates Ctrl+V)
+        await pasteToActiveWindow(id);
+        setOpenedViaShortcut(false);
+      } else {
+        await copyToClipboard(id);
+      }
       setCopied(id);
       setTimeout(() => setCopied(null), 1500);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
-  }, []);
+  }, [openedViaShortcut]);
 
   const handleDelete = useCallback(
     async (id: number) => {
       try {
-        await deleteEntry(id);
+        await deleteEntry(id, archiveEnabled || undefined);
         setEntries((prev) => prev.filter((e) => e.id !== id));
         fetchStats();
+        fetchArchiveCount();
       } catch (err) {
         console.error('Failed to delete:', err);
       }
     },
-    [fetchStats]
+    [fetchStats, fetchArchiveCount, archiveEnabled]
   );
 
   const handleTogglePin = useCallback(
@@ -276,16 +409,81 @@ function AppContent() {
     [fetchEntries, fetchStats]
   );
 
+  const handleRestore = useCallback(
+    async (id: number) => {
+      try {
+        await unarchiveEntry(id);
+        setEntries((prev) => prev.filter((e) => e.id !== id));
+        fetchStats();
+        fetchArchiveCount();
+      } catch (err) {
+        console.error('Failed to restore:', err);
+      }
+    },
+    [fetchStats, fetchArchiveCount]
+  );
+
+  const handlePermanentDelete = useCallback(
+    async (id: number) => {
+      if (!confirm(t.permanentDeleteConfirm)) return;
+      try {
+        await permanentDelete(id);
+        setEntries((prev) => prev.filter((e) => e.id !== id));
+        fetchStats();
+        fetchArchiveCount();
+      } catch (err) {
+        console.error('Failed to permanently delete:', err);
+      }
+    },
+    [fetchStats, fetchArchiveCount, t]
+  );
+
+  const handleMemoRestore = useCallback(
+    async (id: number) => {
+      try {
+        await unarchiveMemo(id);
+        setArchivedMemos((prev) => prev.filter((m) => m.id !== id));
+        fetchMemoCount();
+        fetchMemoArchiveCount();
+      } catch (err) {
+        console.error('Failed to restore memo:', err);
+      }
+    },
+    [fetchMemoCount, fetchMemoArchiveCount]
+  );
+
+  const handleMemoPermanentDelete = useCallback(
+    async (id: number) => {
+      if (!confirm(t.permanentDeleteConfirm)) return;
+      try {
+        await permanentDeleteMemo(id);
+        setArchivedMemos((prev) => prev.filter((m) => m.id !== id));
+        fetchMemoArchiveCount();
+      } catch (err) {
+        console.error('Failed to permanently delete memo:', err);
+      }
+    },
+    [fetchMemoArchiveCount, t]
+  );
+
   const handleClear = useCallback(async () => {
     if (!confirm(t.clearConfirm)) return;
     try {
-      await clearUnpinned();
+      await clearUnpinned(archiveEnabled || undefined);
       fetchEntries();
       fetchStats();
+      fetchArchiveCount();
     } catch (err) {
       console.error('Failed to clear:', err);
     }
-  }, [fetchEntries, fetchStats, t]);
+  }, [fetchEntries, fetchStats, fetchArchiveCount, archiveEnabled, t]);
+
+  // Fetch archived memos when archive tab is active
+  useEffect(() => {
+    if (activeTab === 'archive' && archiveEnabled) {
+      fetchArchivedMemos();
+    }
+  }, [activeTab, archiveEnabled, fetchArchivedMemos]);
 
   // Handle tab change
   const handleTabChange = useCallback((tab: FilterTab) => {
@@ -308,7 +506,7 @@ function AppContent() {
   }, [searchInput, fetchEntries]);
 
   return (
-    <div className="app-root" data-theme={resolvedTheme} data-accent={themeAccent}>
+    <div className="app-root" data-theme={resolvedTheme} data-accent={themeAccent} data-memo-color={memoColor || undefined}>
       {/* Title bar (draggable, frameless window) */}
       <div data-tauri-drag-region className="title-bar">
         <div data-tauri-drag-region className="title-content">
@@ -322,6 +520,8 @@ function AppContent() {
               onRawPreviewChange={setRawPreview}
               onThemeModeChange={setThemeMode}
               onThemeAccentChange={setThemeAccent}
+              onArchiveEnabledChange={setArchiveEnabled}
+              onFollowModeChange={setFollowMode}
             />
           </div>
         </div>
@@ -356,11 +556,82 @@ function AppContent() {
         stats={stats}
         memoEnabled={memoEnabled}
         memoCount={memoCountState}
+        archiveEnabled={archiveEnabled}
+        archiveCount={archiveCountState}
       />
 
       {/* Main content: memo list or clipboard list */}
       {activeTab === 'memo' ? (
-        <MemoList searchQuery={searchQuery} onCountChange={handleMemoCountChange} />
+        <MemoList searchQuery={searchQuery} rawPreview={rawPreview} archiveEnabled={archiveEnabled} onCountChange={handleMemoCountChange} onArchiveCountChange={setMemoArchiveCountState} />
+      ) : activeTab === 'archive' ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Archive sub-tabs */}
+          <div style={{ display: 'flex', gap: '0', padding: '0 12px', borderBottom: '1px solid var(--border)' }}>
+            <button
+              style={{
+                flex: 1, padding: '8px 0', border: 'none', borderBottom: archiveSubTab === 'clipboard' ? '2px solid var(--accent)' : '2px solid transparent',
+                background: 'transparent', color: archiveSubTab === 'clipboard' ? 'var(--accent)' : 'var(--text-muted)',
+                fontSize: '12px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+              }}
+              onClick={() => setArchiveSubTab('clipboard')}
+            >
+              {t.archiveSubTab} ({archiveCountState ?? 0})
+            </button>
+            <button
+              style={{
+                flex: 1, padding: '8px 0', border: 'none', borderBottom: archiveSubTab === 'memos' ? '2px solid var(--accent)' : '2px solid transparent',
+                background: 'transparent', color: archiveSubTab === 'memos' ? 'var(--accent)' : 'var(--text-muted)',
+                fontSize: '12px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+              }}
+              onClick={() => { setArchiveSubTab('memos'); fetchArchivedMemos(); }}
+            >
+              {t.memoSubTab} ({memoArchiveCountState})
+            </button>
+          </div>
+          {/* Sub-tab content */}
+          {archiveSubTab === 'clipboard' ? (
+            entries.length === 0 && !loading ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '40px 20px' }}>
+                <span style={{ fontSize: '36px', opacity: 0.5 }}>{'\uD83D\uDCC1'}</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>{t.archiveEmpty}</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.archiveEmptyHint}</span>
+              </div>
+            ) : (
+              <ClipboardList
+                entries={entries}
+                onCopy={handleCopy}
+                onDelete={handlePermanentDelete}
+                onTogglePin={handleTogglePin}
+                onEdit={handleEdit}
+                rawPreview={rawPreview}
+                loading={loading}
+                isArchive={true}
+                archiveEnabled={archiveEnabled}
+                onRestore={handleRestore}
+                onPermanentDelete={handlePermanentDelete}
+              />
+            )
+          ) : (
+            archivedMemos.length === 0 ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '40px 20px' }}>
+                <span style={{ fontSize: '36px', opacity: 0.5 }}>{'\uD83D\uDCDD'}</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>{t.archiveEmpty}</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.archiveEmptyHint}</span>
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {archivedMemos.map(memo => (
+                  <ArchivedMemoItem
+                    key={memo.id}
+                    memo={memo}
+                    onRestore={() => handleMemoRestore(memo.id)}
+                    onPermanentDelete={() => handleMemoPermanentDelete(memo.id)}
+                  />
+                ))}
+              </div>
+            )
+          )}
+        </div>
       ) : (
         <ClipboardList
           entries={entries}
@@ -370,6 +641,9 @@ function AppContent() {
           onEdit={handleEdit}
           rawPreview={rawPreview}
           loading={loading}
+          archiveEnabled={archiveEnabled}
+          onRestore={handleRestore}
+          onPermanentDelete={handlePermanentDelete}
         />
       )}
 
@@ -378,10 +652,12 @@ function AppContent() {
         <span className="footer-text">
           {activeTab === 'memo'
             ? t.memoCount(memoListCount)
+            : activeTab === 'archive' && archiveSubTab === 'memos'
+            ? t.itemsCount(archivedMemos.length)
             : t.itemsCount(entries.length)}
           {stats?.dbSize != null && t.storageSize(formatBytes(stats.dbSize))}
         </span>
-        {activeTab !== 'memo' && (
+        {activeTab !== 'memo' && activeTab !== 'archive' && (
           <button
             className="clear-btn"
             onClick={handleClear}

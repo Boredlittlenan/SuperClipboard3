@@ -11,6 +11,7 @@ export interface ClipboardEntry {
   created_at: string;
   original_content: string | null;
   updated_at: string | null;
+  archived_at: string | null;
 }
 
 export interface QueryFilter {
@@ -29,6 +30,7 @@ export interface Stats {
   email: number;
   file_path: number;
   dbSize: number;
+  archive: number;
 }
 
 export interface Memo {
@@ -37,8 +39,10 @@ export interface Memo {
   body: string;
   tags: string;
   pinned: boolean;
+  sort_order: number;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 export interface MemoFilter {
@@ -47,5 +51,5 @@ export interface MemoFilter {
   offset?: number;
 }
 
-export type FilterTab = 'memo' | 'all' | Category;
+export type FilterTab = 'memo' | 'all' | 'archive' | Category;
 export type ThemeMode = 'system' | 'light' | 'dark';

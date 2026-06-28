@@ -30,6 +30,8 @@ pub struct ClipboardEntry {
     pub original_content: Option<String>, // Content before first edit (null = never edited)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,       // Timestamp of last edit (null = never edited)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,      // Timestamp of archival (null = not archived)
 }
 
 /// Query filter for listing entries
@@ -49,8 +51,11 @@ pub struct Memo {
     pub body: String,
     pub tags: String,
     pub pinned: bool,
+    pub sort_order: i64,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// Query filter for listing memos
@@ -77,6 +82,7 @@ fn map_row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipboardEntry>
     let created_str: String = row.get(7)?;
     let original_content: Option<String> = row.get(8)?;
     let updated_at: Option<String> = row.get(9)?;
+    let archived_at: Option<String> = row.get(10)?;
 
     Ok(ClipboardEntry {
         id: row.get(0)?,
@@ -91,6 +97,7 @@ fn map_row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipboardEntry>
             .with_timezone(&Utc),
         original_content,
         updated_at,
+        archived_at,
     })
 }
 
@@ -152,6 +159,23 @@ impl Storage {
         let _ = conn.execute_batch("ALTER TABLE clipboard_entries ADD COLUMN original_content TEXT");
         let _ = conn.execute_batch("ALTER TABLE clipboard_entries ADD COLUMN updated_at TEXT");
 
+        // Migration: add sort_order column to memos
+        let _ = conn.execute_batch("ALTER TABLE memos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+        // Initialize sort_order based on current ordering (newest = highest)
+        let _ = conn.execute_batch(
+            "UPDATE memos SET sort_order = (
+                SELECT rn FROM (
+                    SELECT id, ROW_NUMBER() OVER (ORDER BY pinned DESC, created_at DESC) AS rn FROM memos
+                ) ranked WHERE ranked.id = memos.id
+            ) WHERE sort_order = 0",
+        );
+
+        // Migration: add archived_at column to clipboard_entries
+        let _ = conn.execute_batch("ALTER TABLE clipboard_entries ADD COLUMN archived_at TEXT");
+
+        // Migration: add archived_at column to memos
+        let _ = conn.execute_batch("ALTER TABLE memos ADD COLUMN archived_at TEXT");
+
         Ok(())
     }
 
@@ -186,7 +210,7 @@ impl Storage {
     pub fn query(&self, filter: &QueryFilter) -> Result<Vec<ClipboardEntry>, StorageError> {
         let conn = self.conn.lock().unwrap();
 
-        let mut sql = String::from("SELECT id, category, content_type, content, preview, hash, pinned, created_at, original_content, updated_at FROM clipboard_entries WHERE 1=1");
+        let mut sql = String::from("SELECT id, category, content_type, content, preview, hash, pinned, created_at, original_content, updated_at, archived_at FROM clipboard_entries WHERE archived_at IS NULL");
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(ref cat) = filter.category {
@@ -225,7 +249,7 @@ impl Storage {
     pub fn get_entry_by_id(&self, id: i64) -> Result<Option<ClipboardEntry>, StorageError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, category, content_type, content, preview, hash, pinned, created_at, original_content, updated_at
+            "SELECT id, category, content_type, content, preview, hash, pinned, created_at, original_content, updated_at, archived_at
              FROM clipboard_entries WHERE id = ?1",
         )?;
 
@@ -300,12 +324,12 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         let count = if let Some(cat) = category {
             conn.query_row(
-                "SELECT COUNT(*) FROM clipboard_entries WHERE category = ?1",
+                "SELECT COUNT(*) FROM clipboard_entries WHERE category = ?1 AND archived_at IS NULL",
                 params![cat],
                 |row| row.get(0),
             )?
         } else {
-            conn.query_row("SELECT COUNT(*) FROM clipboard_entries", [], |row| {
+            conn.query_row("SELECT COUNT(*) FROM clipboard_entries WHERE archived_at IS NULL", [], |row| {
                 row.get(0)
             })?
         };
@@ -322,11 +346,105 @@ impl Storage {
         Ok(page_count * page_size)
     }
 
-    /// Clear all non-pinned entries
-    pub fn clear_unpinned(&self) -> Result<u64, StorageError> {
+    /// Clear all non-pinned entries (archive them if archive is enabled, otherwise hard delete)
+    pub fn clear_unpinned(&self, archive: bool) -> Result<u64, StorageError> {
         let conn = self.conn.lock().unwrap();
-        let rows = conn.execute("DELETE FROM clipboard_entries WHERE pinned = 0", [])?;
+        if archive {
+            let rows = conn.execute(
+                "UPDATE clipboard_entries SET archived_at = datetime('now') WHERE pinned = 0 AND archived_at IS NULL",
+                [],
+            )?;
+            Ok(rows as u64)
+        } else {
+            let rows = conn.execute("DELETE FROM clipboard_entries WHERE pinned = 0", [])?;
+            Ok(rows as u64)
+        }
+    }
+
+    /// Archive a single entry by ID
+    pub fn archive_entry(&self, id: i64) -> Result<bool, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE clipboard_entries SET archived_at = datetime('now') WHERE id = ?1 AND archived_at IS NULL",
+            params![id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Unarchive (restore) a single entry by ID
+    pub fn unarchive_entry(&self, id: i64) -> Result<bool, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE clipboard_entries SET archived_at = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Query archived entries
+    pub fn query_archived(&self, filter: &QueryFilter) -> Result<Vec<ClipboardEntry>, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let mut sql = String::from("SELECT id, category, content_type, content, preview, hash, pinned, created_at, original_content, updated_at, archived_at FROM clipboard_entries WHERE archived_at IS NOT NULL");
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(ref cat) = filter.category {
+            sql.push_str(" AND category = ?");
+            param_values.push(Box::new(cat.clone()));
+        }
+
+        if let Some(ref search) = filter.search {
+            sql.push_str(" AND (content LIKE ? OR preview LIKE ?)");
+            let pattern = format!("%{}%", search);
+            param_values.push(Box::new(pattern.clone()));
+            param_values.push(Box::new(pattern));
+        }
+
+        sql.push_str(" ORDER BY archived_at DESC");
+
+        let limit = filter.limit.unwrap_or(50);
+        sql.push_str(&format!(" LIMIT {}", limit));
+
+        if let Some(offset) = filter.offset {
+            sql.push_str(&format!(" OFFSET {}", offset));
+        }
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = conn.prepare(&sql)?;
+        let entries = stmt
+            .query_map(params_refs.as_slice(), map_row_to_entry)?
+            .collect::<SqlResult<Vec<_>>>()?;
+
+        Ok(entries)
+    }
+
+    /// Count archived entries
+    pub fn archive_count(&self) -> Result<i64, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM clipboard_entries WHERE archived_at IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Permanently delete entries archived more than `days` days ago
+    pub fn purge_old_archives(&self, days: i64) -> Result<u64, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "DELETE FROM clipboard_entries WHERE archived_at IS NOT NULL AND archived_at < datetime('now', '-' || ?1 || ' days')",
+            params![days],
+        )?;
         Ok(rows as u64)
+    }
+
+    /// Permanently delete a single archived entry
+    pub fn permanent_delete(&self, id: i64) -> Result<bool, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute("DELETE FROM clipboard_entries WHERE id = ?1", params![id])?;
+        Ok(rows > 0)
     }
 
     // ─── Memo CRUD ──────────────────────────────────────────────────
@@ -334,7 +452,7 @@ impl Storage {
     /// Query memos with optional search filter
     pub fn get_memos(&self, filter: &MemoFilter) -> Result<Vec<Memo>, StorageError> {
         let conn = self.conn.lock().unwrap();
-        let mut sql = String::from("SELECT id, title, body, tags, pinned, created_at, updated_at FROM memos WHERE 1=1");
+        let mut sql = String::from("SELECT id, title, body, tags, pinned, sort_order, created_at, updated_at, archived_at FROM memos WHERE archived_at IS NULL");
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(ref search) = filter.search {
@@ -345,7 +463,7 @@ impl Storage {
             param_values.push(Box::new(pattern));
         }
 
-        sql.push_str(" ORDER BY pinned DESC, created_at DESC");
+        sql.push_str(" ORDER BY pinned DESC, sort_order DESC");
 
         let limit = filter.limit.unwrap_or(100);
         sql.push_str(&format!(" LIMIT {}", limit));
@@ -366,8 +484,10 @@ impl Storage {
                     body: row.get(2)?,
                     tags: row.get(3)?,
                     pinned: pinned_int != 0,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    sort_order: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                    archived_at: row.get(8)?,
                 })
             })?
             .collect::<SqlResult<Vec<_>>>()?;
@@ -379,12 +499,12 @@ impl Storage {
     pub fn create_memo(&self, title: &str, body: &str, tags: &str) -> Result<Memo, StorageError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO memos (title, body, tags) VALUES (?1, ?2, ?3)",
+            "INSERT INTO memos (title, body, tags, sort_order) VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM memos))",
             params![title, body, tags],
         )?;
         let id = conn.last_insert_rowid();
         let memo = conn.query_row(
-            "SELECT id, title, body, tags, pinned, created_at, updated_at FROM memos WHERE id = ?1",
+            "SELECT id, title, body, tags, pinned, sort_order, created_at, updated_at, archived_at FROM memos WHERE id = ?1",
             params![id],
             |row| {
                 let pinned_int: i32 = row.get(4)?;
@@ -394,8 +514,10 @@ impl Storage {
                     body: row.get(2)?,
                     tags: row.get(3)?,
                     pinned: pinned_int != 0,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    sort_order: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                    archived_at: row.get(8)?,
                 })
             },
         )?;
@@ -413,10 +535,18 @@ impl Storage {
     }
 
     /// Delete a memo by ID
-    pub fn delete_memo(&self, id: i64) -> Result<bool, StorageError> {
+    pub fn delete_memo(&self, id: i64, archive: bool) -> Result<bool, StorageError> {
         let conn = self.conn.lock().unwrap();
-        let rows = conn.execute("DELETE FROM memos WHERE id = ?1", params![id])?;
-        Ok(rows > 0)
+        if archive {
+            let rows = conn.execute(
+                "UPDATE memos SET archived_at = datetime('now') WHERE id = ?1 AND archived_at IS NULL",
+                params![id],
+            )?;
+            Ok(rows > 0)
+        } else {
+            let rows = conn.execute("DELETE FROM memos WHERE id = ?1", params![id])?;
+            Ok(rows > 0)
+        }
     }
 
     /// Toggle memo pinned status
@@ -439,8 +569,116 @@ impl Storage {
     /// Get total memo count
     pub fn memo_count(&self) -> Result<i64, StorageError> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM memos", [], |row| row.get(0))?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM memos WHERE archived_at IS NULL", [], |row| row.get(0))?;
         Ok(count)
+    }
+
+    /// Batch-update sort_order for multiple memos in a single transaction
+    pub fn reorder_memos(&self, orders: &[(i64, i64)]) -> Result<(), StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        for (id, sort_order) in orders {
+            tx.execute(
+                "UPDATE memos SET sort_order = ?1 WHERE id = ?2",
+                params![sort_order, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Archive a memo by ID
+    pub fn archive_memo(&self, id: i64) -> Result<bool, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE memos SET archived_at = datetime('now') WHERE id = ?1 AND archived_at IS NULL",
+            params![id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Unarchive (restore) a memo by ID
+    pub fn unarchive_memo(&self, id: i64) -> Result<bool, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE memos SET archived_at = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Query archived memos
+    pub fn query_archived_memos(&self, filter: &MemoFilter) -> Result<Vec<Memo>, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let mut sql = String::from("SELECT id, title, body, tags, pinned, sort_order, created_at, updated_at, archived_at FROM memos WHERE archived_at IS NOT NULL");
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(ref search) = filter.search {
+            sql.push_str(" AND (title LIKE ? OR body LIKE ? OR tags LIKE ?)");
+            let pattern = format!("%{}%", search);
+            param_values.push(Box::new(pattern.clone()));
+            param_values.push(Box::new(pattern.clone()));
+            param_values.push(Box::new(pattern));
+        }
+
+        sql.push_str(" ORDER BY archived_at DESC");
+
+        let limit = filter.limit.unwrap_or(100);
+        sql.push_str(&format!(" LIMIT {}", limit));
+
+        if let Some(offset) = filter.offset {
+            sql.push_str(&format!(" OFFSET {}", offset));
+        }
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = conn.prepare(&sql)?;
+        let memos = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                let pinned_int: i32 = row.get(4)?;
+                Ok(Memo {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    body: row.get(2)?,
+                    tags: row.get(3)?,
+                    pinned: pinned_int != 0,
+                    sort_order: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                    archived_at: row.get(8)?,
+                })
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+
+        Ok(memos)
+    }
+
+    /// Count archived memos
+    pub fn memo_archive_count(&self) -> Result<i64, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM memos WHERE archived_at IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Permanently delete memos archived more than `days` days ago
+    pub fn purge_old_memo_archives(&self, days: i64) -> Result<u64, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "DELETE FROM memos WHERE archived_at IS NOT NULL AND archived_at < datetime('now', '-' || ?1 || ' days')",
+            params![days],
+        )?;
+        Ok(rows as u64)
+    }
+
+    /// Permanently delete a single memo (archived or not)
+    pub fn permanent_delete_memo(&self, id: i64) -> Result<bool, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute("DELETE FROM memos WHERE id = ?1", params![id])?;
+        Ok(rows > 0)
     }
 
     /// Get a setting value by key; returns None if not set

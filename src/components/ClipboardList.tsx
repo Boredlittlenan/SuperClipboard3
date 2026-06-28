@@ -10,6 +10,10 @@ interface Props {
   onEdit: (id: number, content: string) => Promise<void>;
   rawPreview: boolean;
   loading: boolean;
+  isArchive?: boolean;
+  archiveEnabled?: boolean;
+  onRestore?: (id: number) => void;
+  onPermanentDelete?: (id: number) => void;
 }
 
 export default function ClipboardList({
@@ -20,6 +24,10 @@ export default function ClipboardList({
   onEdit,
   rawPreview,
   loading,
+  isArchive,
+  archiveEnabled,
+  onRestore,
+  onPermanentDelete,
 }: Props) {
   const { t } = useI18n();
 
@@ -53,6 +61,10 @@ export default function ClipboardList({
           onTogglePin={onTogglePin}
           onEdit={onEdit}
           rawPreview={rawPreview}
+          isArchive={isArchive}
+          archiveEnabled={archiveEnabled}
+          onRestore={onRestore}
+          onPermanentDelete={onPermanentDelete}
         />
       ))}
     </div>
