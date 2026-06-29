@@ -572,7 +572,7 @@ const styles: Record<string, React.CSSProperties> = {
   memoTitle: {
     fontSize: '13px',
     fontWeight: 600,
-    color: '#1a1a1a',
+    color: 'var(--text-primary)',
     flex: 1,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -627,7 +627,7 @@ const styles: Record<string, React.CSSProperties> = {
   // ─── Preview (non-editing) ────────────────────────────────
   memoPreview: {
     fontSize: '13px',
-    color: '#525252',
+    color: 'var(--text-secondary)',
     margin: 0,
     lineHeight: 1.4,
     maxHeight: '60px',
@@ -638,9 +638,9 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     fontSize: '12px',
     lineHeight: 1.4,
-    color: '#1a1a1a',
+    color: 'var(--text-primary)',
     fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
-    background: '#f5f5f5',
+    background: 'var(--hover-bg)',
     padding: '6px 8px',
     borderRadius: '4px',
     whiteSpace: 'pre-wrap',
@@ -671,7 +671,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   timestamp: {
     fontSize: '11px',
-    color: '#999999',
+    color: 'var(--text-muted)',
   },
   editedBadge: {
     fontSize: '10px',

@@ -306,7 +306,7 @@
 .memo-entry:hover {
   background: #f5f5f5;
 }
-/* Fixed text colors inside memo entries — readable on white regardless of theme */
+/* Fixed text colors inside memo entries — readable on white in light mode */
 .memo-entry,
 .memo-entry .memo-selectable {
   color: #1a1a1a;
@@ -316,6 +316,24 @@
 }
 .memo-entry .memo-preview {
   color: #525252;
+}
+
+/* Dark mode: use theme-aware colors for memo entries */
+[data-theme="dark"] .memo-entry {
+  background: var(--surface);
+}
+[data-theme="dark"] .memo-entry:hover {
+  background: var(--hover-bg);
+}
+[data-theme="dark"] .memo-entry,
+[data-theme="dark"] .memo-entry .memo-selectable {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .memo-entry .memo-time {
+  color: var(--text-muted);
+}
+[data-theme="dark"] .memo-entry .memo-preview {
+  color: var(--text-secondary);
 }
 .memo-entry .memo-actions {
   opacity: 0;

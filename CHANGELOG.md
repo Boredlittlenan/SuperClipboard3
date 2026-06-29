@@ -20,6 +20,18 @@
 - **主线程安全**：快捷键回调中的窗口操作统一派发到主线程执行（`run_on_main_thread`），避免跨线程窗口操作导致的崩溃
 - **原生窗口定位**：使用 Windows `SetWindowPos` API 替代 Tauri `set_position`，在 `show()` 前后各调用一次确保位置生效
 
+### 修复
+
+- **快捷键注册竞态**：修改 `set_shortcut` 为先注册新快捷键再注销旧快捷键，防止注册失败时丢失快捷键
+- **窗口位置保存**：`WindowEvent::Moved` 事件增加 500ms 防抖和 `save_position` 开关检查，避免每像素移动都写 SQLite
+- **托盘重置竞争**：托盘重置位置时设置 `suppress` 标志，防止 `Moved` 事件覆盖已清除的位置
+- **备忘录暗黑模式**：备忘录条目样式从硬编码颜色改为 CSS 变量，暗黑模式下正确适配
+- **插入符 (0,0) 误判**：移除 `get_caret_pos_screen` 中对 `(0,0)` 坐标的错误启发式检查
+
+### 清理
+
+- 移除未使用的 `storageSize` 翻译键和 `getCursorPosition` 前端 API
+
 ### 技术细节
 
 - 新增 `get_caret_pos_screen()` 辅助函数：通过 `GetForegroundWindow` → `GetCaretPos` → `ClientToScreen` 链获取前台窗口插入符的屏幕坐标

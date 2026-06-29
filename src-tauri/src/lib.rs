@@ -7,6 +7,8 @@ use clipboard::ClipboardMonitor;
 use log::info;
 use serde::{Serialize, Deserialize};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use storage::{ClipboardEntry, QueryFilter, Storage, Memo, MemoFilter};
 use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -31,6 +33,8 @@ pub struct AppState {
     storage: Arc<Storage>,
     monitor: std::sync::Mutex<ClipboardMonitor>,
     current_shortcut: std::sync::Mutex<String>,
+    #[cfg(windows)]
+    suppress_move_save: Arc<AtomicBool>,
 }
 
 fn tray_menu_labels(language: &str) -> (&'static str, &'static str) {
@@ -69,7 +73,7 @@ fn get_caret_pos_screen() -> Option<(i32, i32)> {
             return None;
         }
         let mut pt = windows::Win32::Foundation::POINT { x: 0, y: 0 };
-        if GetCaretPos(&mut pt).is_err() || (pt.x == 0 && pt.y == 0) {
+        if GetCaretPos(&mut pt).is_err() {
             return None;
         }
         if !ClientToScreen(hwnd, &mut pt).as_bool() {
@@ -121,6 +125,7 @@ fn register_toggle_shortcut(
     app: &tauri::AppHandle,
     shortcut: &str,
     storage: Arc<Storage>,
+    suppress_move_save: Arc<AtomicBool>,
 ) -> Result<(), tauri_plugin_global_shortcut::Error> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let app = app.clone();
@@ -129,8 +134,10 @@ fn register_toggle_shortcut(
             if event.state == ShortcutState::Pressed {
                 let app = app.clone();
                 let storage = storage.clone();
+                let suppress = suppress_move_save.clone();
 
                 let app_for_main = app.clone();
+                let suppress_for_main = suppress.clone();
                 let _ = app.run_on_main_thread(move || {
                     if let Some(window) = app_for_main.get_webview_window("main") {
                         if window.is_visible().unwrap_or(false) {
@@ -203,6 +210,7 @@ fn register_toggle_shortcut(
 
                                     // Apply position before show
                                     if let Some((x, y)) = pos {
+                                        suppress_for_main.store(true, Ordering::SeqCst);
                                         set_window_pos_native(hwnd_raw, x, y);
                                     }
 
@@ -213,6 +221,13 @@ fn register_toggle_shortcut(
                                     if let Some((x, y)) = pos {
                                         set_window_pos_native(hwnd_raw, x, y);
                                     }
+                                    // Re-enable position tracking after a short delay
+                                    // to let any pending Moved events fire while suppressed
+                                    let suppress_delay = suppress_for_main.clone();
+                                    std::thread::spawn(move || {
+                                        std::thread::sleep(std::time::Duration::from_millis(200));
+                                        suppress_delay.store(false, Ordering::SeqCst);
+                                    });
                                 }
                             }
 
@@ -422,12 +437,16 @@ fn set_shortcut(
 
     // Validate the new shortcut by trying to register it first
     if new_shortcut != old_shortcut {
-        // Unregister old shortcut
-        let _ = app.global_shortcut().unregister(old_shortcut.as_str());
-
-        // Register new shortcut
+        // Register new shortcut first — if this fails, old shortcut stays active
+        #[cfg(windows)]
+        register_toggle_shortcut(&app, new_shortcut.as_str(), state.storage.clone(), state.suppress_move_save.clone())
+            .map_err(|e| format!("Failed to register shortcut: {}", e))?;
+        #[cfg(not(windows))]
         register_toggle_shortcut(&app, new_shortcut.as_str(), state.storage.clone())
             .map_err(|e| format!("Failed to register shortcut: {}", e))?;
+
+        // New shortcut registered successfully, now unregister old
+        let _ = app.global_shortcut().unregister(old_shortcut.as_str());
 
         // Update state
         *state.current_shortcut.lock().unwrap() = new_shortcut.clone();
@@ -760,14 +779,21 @@ pub fn run() {
 
             let storage_for_shortcut = storage.clone();
             let storage_for_tray = storage.clone();
+            #[cfg(windows)]
+            let suppress_move_save: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
             app.manage(AppState {
                 storage: storage.clone(),
                 monitor: std::sync::Mutex::new(monitor),
                 current_shortcut: std::sync::Mutex::new(shortcut.clone()),
+                #[cfg(windows)]
+                suppress_move_save: suppress_move_save.clone(),
             });
 
             // Register global shortcut to show/hide window
+            #[cfg(windows)]
+            let _ = register_toggle_shortcut(&app.handle(), shortcut.as_str(), storage_for_shortcut, suppress_move_save.clone());
+            #[cfg(not(windows))]
             let _ = register_toggle_shortcut(&app.handle(), shortcut.as_str(), storage_for_shortcut);
 
             // Apply always-on-top setting and track window position for "save position" feature
@@ -777,10 +803,30 @@ pub fn run() {
                 #[cfg(windows)]
                 {
                     let storage_for_events = storage.clone();
+                    let suppress_for_events = suppress_move_save.clone();
+                    let last_save: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
                     window.on_window_event(move |event| {
                         if let tauri::WindowEvent::Moved(pos) = event {
-                            let pos_str = format!("{},{}", pos.x, pos.y);
-                            let _ = storage_for_events.set_setting("window_pos", &pos_str);
+                            // Skip if programmatic move (shortcut/tray handler)
+                            if suppress_for_events.load(Ordering::SeqCst) {
+                                return;
+                            }
+                            // Only save when save_position is enabled
+                            let should_save = storage_for_events.get_setting("save_position")
+                                .ok().flatten()
+                                .map(|v| v == "true")
+                                .unwrap_or(false);
+                            if !should_save {
+                                return;
+                            }
+                            // Debounce: save at most once per 500ms
+                            let now = Instant::now();
+                            let mut last = last_save.lock().unwrap();
+                            if last.map_or(true, |t| now.duration_since(t).as_millis() > 500) {
+                                let pos_str = format!("{},{}", pos.x, pos.y);
+                                let _ = storage_for_events.set_setting("window_pos", &pos_str);
+                                *last = Some(now);
+                            }
                         }
                     });
                 }
@@ -793,6 +839,8 @@ pub fn run() {
 
                 // Handle menu item clicks
                 let storage_tray = storage_for_tray.clone();
+                #[cfg(windows)]
+                let suppress_tray = suppress_move_save.clone();
                 tray.on_menu_event(move |app_handle, event| {
                     match event.id().as_ref() {
                         "settings" => {
@@ -809,7 +857,13 @@ pub fn run() {
                                         let win_h = win_size.height as i32;
                                         let x = ((wa_left + wa_right * 3) / 4 - win_w / 2).clamp(wa_left, wa_right - win_w);
                                         let y = wa_top + (wa_h - win_h) / 2;
+                                        suppress_tray.store(true, Ordering::SeqCst);
                                         set_window_pos_native(hwnd.0 as isize, x, y);
+                                        let suppress_delay = suppress_tray.clone();
+                                        std::thread::spawn(move || {
+                                            std::thread::sleep(std::time::Duration::from_millis(200));
+                                            suppress_delay.store(false, Ordering::SeqCst);
+                                        });
                                     }
                                 }
                                 let _ = window.show();

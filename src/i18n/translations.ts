@@ -51,7 +51,6 @@ export interface Translations {
 
   // Footer
   itemsCount: (n: number) => string;
-  storageSize: (formatted: string) => string;
   clipboardStorage: (formatted: string) => string;
   memoStorage: (formatted: string) => string;
   clearHistory: string;
@@ -163,7 +162,6 @@ export const zhCN: Translations = {
   noEntriesHint: '复制一些内容开始使用',
 
   itemsCount: (n) => `${n} 条记录`,
-  storageSize: (s) => ` · ${s}`,
   clipboardStorage: (s) => `剪贴板 ${s}`,
   memoStorage: (s) => `备忘录 ${s}`,
   clearHistory: '清除历史',
@@ -272,7 +270,6 @@ export const en: Translations = {
   noEntriesHint: 'Copy something to get started',
 
   itemsCount: (n) => `${n} item${n !== 1 ? 's' : ''}`,
-  storageSize: (s) => ` · ${s}`,
   clipboardStorage: (s) => `Clipboard ${s}`,
   memoStorage: (s) => `Memo ${s}`,
   clearHistory: 'Clear History',
