@@ -64,7 +64,6 @@ export interface Translations {
   memoTagsPlaceholder: string;
   memoEmpty: string;
   memoEmptyHint: string;
-  memoCount: (n: number) => string;
   memoSetting: string;
   memoSettingDesc: string;
   memoColor: string;
@@ -174,7 +173,6 @@ export const zhCN: Translations = {
   memoTagsPlaceholder: '添加标签，逗号分隔',
   memoEmpty: '还没有备忘录',
   memoEmptyHint: '点击新建开始记录',
-  memoCount: (n) => `${n} 条备忘录`,
   memoSetting: '备忘录',
   memoSettingDesc: '在标签栏显示备忘录入口',
   memoColor: '备忘录配色',
@@ -282,7 +280,6 @@ export const en: Translations = {
   memoTagsPlaceholder: 'Tags, comma separated',
   memoEmpty: 'No memos yet',
   memoEmptyHint: 'Click to create your first memo',
-  memoCount: (n) => `${n} memo${n !== 1 ? 's' : ''}`,
   memoSetting: 'Memos',
   memoSettingDesc: 'Show memo tab in sidebar',
   memoColor: 'Memo Color',

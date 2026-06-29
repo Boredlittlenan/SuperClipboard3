@@ -636,7 +636,7 @@ function AppContent() {
       <div className="footer-bar">
         <span className="footer-text">
           {activeTab === 'memo'
-            ? t.memoCount(memoListCount)
+            ? t.itemsCount(memoListCount)
             : activeTab === 'archive' && archiveSubTab === 'memos'
             ? t.itemsCount(archivedMemos.length)
             : t.itemsCount(entries.length)}
