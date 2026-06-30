@@ -7,6 +7,7 @@ mod window_position;
 use clipboard::ClipboardMonitor;
 use log::info;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use storage::{ClipboardEntry, Memo, MemoFilter, QueryFilter, Storage};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -35,6 +36,7 @@ pub struct AppState {
     storage: Arc<Storage>,
     _monitor: std::sync::Mutex<ClipboardMonitor>,
     current_shortcut: std::sync::Mutex<String>,
+    shortcut_recording: Arc<AtomicBool>,
 }
 
 fn tray_menu_labels(language: &str) -> (&'static str, &'static str) {
@@ -137,16 +139,43 @@ fn show_window(
 
 // ─── Shortcut Helpers ────────────────────────────────────────────────
 
+fn normalize_shortcut(shortcut: &str) -> String {
+    shortcut
+        .split('+')
+        .filter_map(|part| {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let normalized = match trimmed.to_ascii_lowercase().as_str() {
+                "control" | "ctrl" => "Ctrl".to_string(),
+                "meta" | "super" | "win" | "windows" => "Super".to_string(),
+                "alt" | "option" => "Alt".to_string(),
+                "shift" => "Shift".to_string(),
+                key if key.len() == 1 => key.to_ascii_uppercase(),
+                _ => trimmed.to_string(),
+            };
+            Some(normalized)
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
 /// Register a global shortcut that toggles the main window visibility.
 fn register_toggle_shortcut(
     app: &tauri::AppHandle,
     shortcut: &str,
+    shortcut_recording: Arc<AtomicBool>,
 ) -> Result<(), tauri_plugin_global_shortcut::Error> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let app = app.clone();
     app.global_shortcut()
         .on_shortcut(shortcut, move |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
+                if shortcut_recording.load(Ordering::SeqCst) {
+                    return;
+                }
                 let app = app.clone();
                 let app_for_main = app.clone();
                 let _ = app.run_on_main_thread(move || {
@@ -404,27 +433,53 @@ fn set_shortcut(
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let old_shortcut = state.current_shortcut.lock().unwrap().clone();
+    let new_shortcut = normalize_shortcut(&new_shortcut);
 
-    // Validate the new shortcut by trying to register it first
-    if new_shortcut != old_shortcut {
-        // Register new shortcut first — if this fails, old shortcut stays active
-        register_toggle_shortcut(&app, new_shortcut.as_str())
-            .map_err(|e| format!("Failed to register shortcut: {}", e))?;
+    state.shortcut_recording.store(false, Ordering::SeqCst);
+    let _ = app.global_shortcut().unregister(old_shortcut.as_str());
 
-        // New shortcut registered successfully, now unregister old
-        let _ = app.global_shortcut().unregister(old_shortcut.as_str());
-
-        // Update state
-        *state.current_shortcut.lock().unwrap() = new_shortcut.clone();
-
-        // Persist to SQLite
-        state
-            .storage
-            .set_setting("shortcut", &new_shortcut)
-            .map_err(|e| e.to_string())?;
+    if let Err(err) = register_toggle_shortcut(
+        &app,
+        new_shortcut.as_str(),
+        state.shortcut_recording.clone(),
+    ) {
+        if !old_shortcut.is_empty() {
+            let _ = register_toggle_shortcut(
+                &app,
+                old_shortcut.as_str(),
+                state.shortcut_recording.clone(),
+            );
+        }
+        return Err(format!("Failed to register shortcut: {}", err));
     }
 
+    *state.current_shortcut.lock().unwrap() = new_shortcut.clone();
+    state
+        .storage
+        .set_setting("shortcut", &new_shortcut)
+        .map_err(|e| e.to_string())?;
+
     Ok(new_shortcut)
+}
+
+#[tauri::command]
+fn set_shortcut_recording(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    recording: bool,
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    let shortcut = state.current_shortcut.lock().unwrap().clone();
+    state.shortcut_recording.store(recording, Ordering::SeqCst);
+
+    let _ = app.global_shortcut().unregister(shortcut.as_str());
+    if !recording {
+        register_toggle_shortcut(&app, shortcut.as_str(), state.shortcut_recording.clone())
+            .map_err(|e| format!("Failed to restore shortcut: {}", e))?;
+    }
+
+    Ok(())
 }
 
 /// Set window always-on-top at runtime
@@ -762,10 +817,12 @@ pub fn run() {
                 storage: storage.clone(),
                 _monitor: std::sync::Mutex::new(monitor),
                 current_shortcut: std::sync::Mutex::new(shortcut.clone()),
+                shortcut_recording: Arc::new(AtomicBool::new(false)),
             });
 
             // Register global shortcut to show/hide window
-            let _ = register_toggle_shortcut(&app.handle(), shortcut.as_str());
+            let shortcut_recording = app.state::<AppState>().shortcut_recording.clone();
+            let _ = register_toggle_shortcut(&app.handle(), shortcut.as_str(), shortcut_recording);
 
             // Apply always-on-top setting.
             if let Some(window) = app.get_webview_window("main") {
@@ -834,6 +891,7 @@ pub fn run() {
             set_autostart_enabled,
             get_shortcut,
             set_shortcut,
+            set_shortcut_recording,
             get_memos,
             create_memo,
             update_memo,

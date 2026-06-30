@@ -73,3 +73,16 @@ export function getArchiveTone(daysRemaining: number): 'warning' | 'danger' {
   if (daysRemaining <= 10) return 'danger';
   return 'warning';
 }
+
+export function formatShortcutLabel(shortcut: string): string {
+  return shortcut
+    .split('+')
+    .map((part) => {
+      const token = part.trim();
+      if (token === 'Super' || token === 'Meta') return 'Win';
+      if (token === 'Ctrl') return 'Ctrl';
+      return token;
+    })
+    .filter(Boolean)
+    .join('+');
+}

@@ -30,6 +30,11 @@ export async function setShortcut(shortcut: string): Promise<string> {
   return invoke('set_shortcut', { newShortcut: shortcut });
 }
 
+/** Temporarily disable or restore the global shortcut while recording a new one */
+export async function setShortcutRecording(recording: boolean): Promise<void> {
+  return invoke('set_shortcut_recording', { recording });
+}
+
 export interface UpdateInfo {
   currentVersion: string;
   latestVersion: string;

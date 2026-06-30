@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import type { Locale } from '../i18n/translations';
-import { getAutostartEnabled, setAutostartEnabled, getShortcut, setShortcut, checkUpdate, openUrl, getSetting, setSetting, setAlwaysOnTop } from '../api/settings';
+import { getAutostartEnabled, setAutostartEnabled, getShortcut, setShortcut, setShortcutRecording, checkUpdate, openUrl, getSetting, setSetting, setAlwaysOnTop } from '../api/settings';
 import type { UpdateInfo } from '../api/settings';
 import type { ThemeMode } from '../types';
 import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
+import { formatShortcutLabel } from '../utils';
 
 const LANGUAGES: { value: Locale; labelKey: 'langZhCN' | 'langEn' }[] = [
   { value: 'zh-CN', labelKey: 'langZhCN' },
@@ -17,13 +18,28 @@ function keyToTauri(key: string): string {
   switch (key) {
     case 'Control': return 'Ctrl';
     case 'Meta': return 'Super';
+    case 'OS': return 'Super';
+    case 'Win': return 'Super';
+    case 'Windows': return 'Super';
     case 'Shift': return 'Shift';
     case 'Alt': return 'Alt';
+    case ' ': return 'Space';
     default:
       if (key.length === 1) return key.toUpperCase();
       // F-keys, arrows, etc.
       return key;
   }
+}
+
+function isModifierKey(key: string): boolean {
+  return key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta' || key === 'OS';
+}
+
+function addEventModifiers(event: KeyboardEvent, modifiers: Set<string>) {
+  if (event.ctrlKey || event.key === 'Control') modifiers.add('Control');
+  if (event.shiftKey || event.key === 'Shift') modifiers.add('Shift');
+  if (event.altKey || event.key === 'Alt') modifiers.add('Alt');
+  if (event.metaKey || event.key === 'Meta' || event.key === 'OS') modifiers.add('Meta');
 }
 
 interface SettingsButtonProps {
@@ -63,6 +79,24 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
     modifiers: new Set(),
     mainKey: null,
   });
+
+  const handleShortcutButtonClick = useCallback(async () => {
+    if (recording) {
+      setShortcutRecording(false).catch(console.error);
+      setRecording(false);
+      setError('');
+      return;
+    }
+
+    try {
+      keysRef.current = { modifiers: new Set(), mainKey: null };
+      await setShortcutRecording(true);
+      setError('');
+      setRecording(true);
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [recording]);
 
   const MEMO_PRESETS = [
     { color: '#ec5f9e', title: '樱花粉' },
@@ -167,6 +201,10 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
 
     keysRef.current = { modifiers: new Set(), mainKey: null };
 
+    const restoreShortcut = () => {
+      setShortcutRecording(false).catch(console.error);
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -177,8 +215,8 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
         return;
       }
 
-      const modKeys = ['Control', 'Shift', 'Alt', 'Meta'];
-      if (modKeys.includes(e.key)) {
+      addEventModifiers(e, keysRef.current.modifiers);
+      if (isModifierKey(e.key)) {
         keysRef.current.modifiers.add(e.key);
       } else {
         keysRef.current.mainKey = e.key;
@@ -189,6 +227,7 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
       e.preventDefault();
       e.stopPropagation();
 
+      addEventModifiers(e, keysRef.current.modifiers);
       const { modifiers, mainKey } = keysRef.current;
       if (mainKey === null) return; // only modifier released, no main key yet
 
@@ -223,6 +262,7 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
     return () => {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
+      restoreShortcut();
     };
   }, [recording, t, onShortcutChange]);
 
@@ -374,14 +414,9 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
                 ...(recording ? styles.shortcutBtnRecording : {}),
                 ...(error ? styles.shortcutBtnError : {}),
               }}
-              onClick={() => {
-                if (!recording) {
-                  setError('');
-                  setRecording(true);
-                }
-              }}
+              onClick={handleShortcutButtonClick}
             >
-              {recording ? t.shortcutRecording : shortcut}
+              {recording ? t.shortcutRecording : formatShortcutLabel(shortcut)}
             </button>
           </div>
           {error && <span style={styles.errorText}>{error}</span>}

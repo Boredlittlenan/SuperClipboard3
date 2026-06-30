@@ -18,7 +18,7 @@ import {
 } from './api/clipboard';
 import { getShortcut, getSetting, checkUpdate, pasteToActiveWindow } from './api/settings';
 import { memoCount, getArchivedMemos, memoArchiveCount, unarchiveMemo, permanentDeleteMemo, purgeOldMemoArchives } from './api/memos';
-import { formatRelativeTime, getArchiveDaysRemaining, getArchiveTone } from './utils';
+import { formatRelativeTime, formatShortcutLabel, getArchiveDaysRemaining, getArchiveTone } from './utils';
 import { I18nProvider, useI18n } from './i18n';
 import CategoryTabs from './components/CategoryTabs';
 import ClipboardList from './components/ClipboardList';
@@ -551,7 +551,7 @@ function AppContent() {
         <div data-tauri-drag-region className="title-content">
           <span className="title-text">{t.appTitle}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="shortcut-hint">{currentShortcut}</span>
+            <span className="shortcut-hint">{formatShortcutLabel(currentShortcut)}</span>
             <SettingsButton
               onShortcutChange={setCurrentShortcut}
               onMemoEnabledChange={setMemoEnabled}
