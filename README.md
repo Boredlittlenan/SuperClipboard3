@@ -11,7 +11,7 @@ A lightweight clipboard manager built with Rust + Tauri + React + TypeScript.
 - SQLite storage with indexed queries for fast search
 - Pin important entries, one-click copy back to clipboard
 - Memo / quick notes: independent tab for title, body, tags, search, pin, and auto-save; disabled by default and available from settings
-- Global shortcut to show/hide window (default: Shift+C, customizable in settings)
+- Global shortcut to show/hide window (default: Alt+X, customizable in settings)
 - Always-on-top toggle (default: off) to keep the window above others when enabled
 - System tray with context menu (open settings, quit app)
 - Theme mode follows the system by default, with Light / Dark / Auto segmented switching

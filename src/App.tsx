@@ -93,7 +93,7 @@ function AppContent() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<number | null>(null);
-  const [currentShortcut, setCurrentShortcut] = useState('Shift+C');
+  const [currentShortcut, setCurrentShortcut] = useState('Alt+X');
   const [memoEnabled, setMemoEnabled] = useState(false);
   const [memoCountState, setMemoCountState] = useState<number | null>(null);
   const [memoListCount, setMemoListCount] = useState<number>(0);

@@ -51,7 +51,7 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
   const [memoColor, setMemoColor] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [hexInput, setHexInput] = useState('');
-  const [shortcut, setShortcutState] = useState('Shift+C');
+  const [shortcut, setShortcutState] = useState('Alt+X');
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState('');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'hasUpdate' | 'failed'>('idle');

@@ -19,7 +19,7 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// GitHub repository owner/name for update checks
 const GITHUB_REPO: &str = "Boredlittlenan/SuperClipboard3";
-const DEFAULT_SHORTCUT: &str = "Shift+C";
+const DEFAULT_SHORTCUT: &str = "Alt+X";
 const DEFAULT_SETTINGS_VERSION: &str = "2";
 
 #[derive(Serialize)]
