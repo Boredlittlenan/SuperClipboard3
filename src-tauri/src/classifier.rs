@@ -30,24 +30,19 @@ impl std::fmt::Display for Category {
 
 // ─── Pre-compiled patterns ──────────────────────────────────────────
 
-static EMAIL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$").unwrap()
-});
+static EMAIL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$").unwrap());
 
-static WINDOWS_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^[A-Za-z]:\\(.+\\)*[^\\/:*?"<>|]+$"#).unwrap()
-});
+static WINDOWS_PATH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^[A-Za-z]:\\(.+\\)*[^\\/:*?"<>|]+$"#).unwrap());
 
-static UNIX_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(/[^/\x00]+)+/?$").unwrap()
-});
+static UNIX_PATH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(/[^/\x00]+)+/?$").unwrap());
 
 /// Bare domain detection: www.example.com, example.com, sub.domain.co.uk, etc.
 /// Matches optional www. prefix, domain labels, and a TLD of 2+ characters.
 /// Allows paths, query strings, and fragments after the domain.
-static DOMAIN_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(www\.)?([a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}(/[^\s]*)?$").unwrap()
-});
+static DOMAIN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(www\.)?([a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}(/[^\s]*)?$").unwrap());
 
 // ─── Code detection patterns (used for scoring) ─────────────────────
 
@@ -67,9 +62,8 @@ static CSS_PROPERTY_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// CSS selector block: `selector { ... }`
-static CSS_SELECTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[.#][\w\-]+\s*\{[^}]*\}|[\w\-]+\s*\{[^}]*:[^}]*\}").unwrap()
-});
+static CSS_SELECTOR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[.#][\w\-]+\s*\{[^}]*\}|[\w\-]+\s*\{[^}]*:[^}]*\}").unwrap());
 
 /// HTML/XML tags
 static HTML_TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -87,29 +81,28 @@ static SHELL_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Regex literal patterns (e.g. /\w+/g, /^test$/i)
-static REGEX_LITERAL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"/[^/\n]+/[gimsuy]{0,6}").unwrap()
-});
+static REGEX_LITERAL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"/[^/\n]+/[gimsuy]{0,6}").unwrap());
 
 /// Markdown indicators: # headers, **bold**, [text](url), ```code blocks```, - list items
 static MARKDOWN_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^#{1,6}\s+\S|^\s*[-*]\s+\S|\*\*\S[^*]+\*\*|`{3}|\[[^\]]+\]\([^)]+\)|^\s*>\s+\S").unwrap()
+    Regex::new(
+        r"(?m)^#{1,6}\s+\S|^\s*[-*]\s+\S|\*\*\S[^*]+\*\*|`{3}|\[[^\]]+\]\([^)]+\)|^\s*>\s+\S",
+    )
+    .unwrap()
 });
 
 /// YAML/TOML indicators: key: value lines (without braces), [section] headers
-static CONFIG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^[\w][\w.-]*:\s+\S|^\[[\w][\w.-]*\]$").unwrap()
-});
+static CONFIG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^[\w][\w.-]*:\s+\S|^\[[\w][\w.-]*\]$").unwrap());
 
 /// Generic code structure
-static CODE_STRUCTURE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)\{[\s]*$|^[\s]*\}|;\s*$|//[^\n]*$|/\*.*\*/"#).unwrap()
-});
+static CODE_STRUCTURE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)\{[\s]*$|^[\s]*\}|;\s*$|//[^\n]*$|/\*.*\*/"#).unwrap());
 
 /// JSON with quoted keys: `"key":` or `"key" :`
-static JSON_KEY_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#""[a-zA-Z_][\w]*"\s*:"#).unwrap()
-});
+static JSON_KEY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""[a-zA-Z_][\w]*"\s*:"#).unwrap());
 
 // Threshold to classify as code
 const CODE_SCORE_THRESHOLD: i32 = 5;
@@ -178,10 +171,16 @@ fn score_code(text: &str) -> i32 {
     // Only applied to single-line or very short text
     let has_semicolon = text.contains(';');
     let has_braces = text.contains('{') || text.contains('}');
-    if !has_semicolon && !has_braces && line_count == 1
-        && kw_matches == 0 && css_prop_matches == 0
-        && html_matches == 0 && !CSS_SELECTOR_RE.is_match(text)
-        && regex_matches == 0 && md_matches == 0 && config_matches == 0
+    if !has_semicolon
+        && !has_braces
+        && line_count == 1
+        && kw_matches == 0
+        && css_prop_matches == 0
+        && html_matches == 0
+        && !CSS_SELECTOR_RE.is_match(text)
+        && regex_matches == 0
+        && md_matches == 0
+        && config_matches == 0
     {
         score -= 2;
     }
@@ -207,9 +206,8 @@ pub fn classify_text(text: &str) -> Category {
                 || trimmed.starts_with("ftp://"));
 
         // Bare domain detection: www.example.com or example.com with common TLDs
-        let is_bare_domain = trimmed.lines().count() == 1
-            && !trimmed.contains(' ')
-            && DOMAIN_RE.is_match(trimmed);
+        let is_bare_domain =
+            trimmed.lines().count() == 1 && !trimmed.contains(' ') && DOMAIN_RE.is_match(trimmed);
 
         if has_scheme || is_bare_domain {
             return Category::Link;
@@ -274,19 +272,31 @@ mod tests {
     #[test]
     fn test_classify_code_css_multiline() {
         let css = "figure.elementor-image-box-img {\n  width: 100% !important;\n  display: flex;\n  justify-content: center;\n}";
-        assert_eq!(classify_text(css), Category::Code, "CSS multi-line should be code");
+        assert_eq!(
+            classify_text(css),
+            Category::Code,
+            "CSS multi-line should be code"
+        );
     }
 
     #[test]
     fn test_classify_code_css_inline() {
         let css = ".container { display: flex; align-items: center; }";
-        assert_eq!(classify_text(css), Category::Code, "CSS inline should be code");
+        assert_eq!(
+            classify_text(css),
+            Category::Code,
+            "CSS inline should be code"
+        );
     }
 
     #[test]
     fn test_classify_code_css_property() {
         let css = "justify-content: center;\ndisplay: flex;\nmargin: 0 auto;";
-        assert_eq!(classify_text(css), Category::Code, "CSS properties should be code");
+        assert_eq!(
+            classify_text(css),
+            Category::Code,
+            "CSS properties should be code"
+        );
     }
 
     #[test]
@@ -342,7 +352,10 @@ mod tests {
     fn test_classify_text() {
         assert_eq!(classify_text("Hello, world!"), Category::Text);
         assert_eq!(classify_text("这是一段普通的中文文本"), Category::Text);
-        assert_eq!(classify_text("The quick brown fox jumps over the lazy dog"), Category::Text);
+        assert_eq!(
+            classify_text("The quick brown fox jumps over the lazy dog"),
+            Category::Text
+        );
     }
 
     #[test]
@@ -353,12 +366,19 @@ mod tests {
     #[test]
     fn test_natural_text_not_code() {
         assert_ne!(classify_text("今天天气不错，适合出去走走"), Category::Code);
-        assert_ne!(classify_text("Check out the documentation for more info"), Category::Code);
+        assert_ne!(
+            classify_text("Check out the documentation for more info"),
+            Category::Code
+        );
     }
 
     #[test]
     fn test_classify_regex_literal() {
         let code = "const pattern = /\\bhello\\b/gi;\nconst match = text.match(pattern);";
-        assert_eq!(classify_text(code), Category::Code, "Regex literal should be code");
+        assert_eq!(
+            classify_text(code),
+            Category::Code,
+            "Regex literal should be code"
+        );
     }
 }

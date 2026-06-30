@@ -62,3 +62,14 @@ export function formatRelativeTime(isoString: string, t: Translations): string {
   const minutes = String(date.getMinutes()).padStart(2, '0');
   return `${month}/${day} ${hours}:${minutes}`;
 }
+
+export function getArchiveDaysRemaining(archivedAt: string): number {
+  const archivedDate = new Date(archivedAt);
+  const expiryDate = new Date(archivedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+  return Math.max(0, Math.ceil((expiryDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+}
+
+export function getArchiveTone(daysRemaining: number): 'warning' | 'danger' {
+  if (daysRemaining <= 10) return 'danger';
+  return 'warning';
+}

@@ -1,15 +1,13 @@
 # Changelog
 
-## v2.0.1 (2026-06-29)
+## v2.0.0 (2026-06-30)
 
 ### 新功能
 
-- **插入符跟随**：跟随模式从跟随鼠标位置改为跟随插入符（光标）位置，使用 Windows 原生 `GetCaretPos` + `ClientToScreen` API 获取前台窗口的插入符屏幕坐标
-- **智能窗口定位**：快捷键唤起时根据插入符位置智能放置窗口——插入符在屏幕上半部则窗口显示在下方，在右半部则显示在左侧，始终保证窗口完整显示在屏幕工作区内
-- **保存位置**：新增「保存位置」设置选项（跟随模式上方），开启后每次唤起和关闭窗口自动记录窗口位置到 SQLite，重启应用也能恢复；关闭则每次唤起定位到屏幕右半屏居中
-- **托盘设置重置位置**：右键托盘图标选择「设置」打开应用时，窗口位置自动重置为右半屏居中默认位置，并清除已保存的位置记录
-- **备忘录图片粘贴**：备忘录编辑区支持 Ctrl+V 粘贴图片，以 base64 markdown 语法内嵌存储，预览区自动渲染为图片
+- **托盘设置重置位置**：右键托盘图标选择「设置」打开应用时，窗口位置自动重置为右半屏居中默认位置
+- **备忘录图片粘贴**：备忘录编辑区支持 Ctrl+V 粘贴图片，预览区自动渲染为图片，不再把 base64 文本暴露给用户
 - **存储分开显示**：底栏存储按页面分别显示——备忘录页显示备忘录内容占用，剪贴板页显示剪贴板内容占用，SQL 排除已归档条目
+- **默认初始状态同步**：默认快捷键为 `Shift+C`，主题模式跟随系统，主题配色为少年蓝，开机自启和自动检查更新默认开启，窗口置顶、原格式预览、备忘录和回收站默认关闭
 
 ### 改进
 
@@ -18,29 +16,28 @@
 - **默认位置居中**：默认窗口位置从贴近右边缘改为右半屏水平居中（`(left + right*3)/4 - win_w/2`）
 - **工作区感知**：窗口定位使用 `GetMonitorInfoW` 获取显示器工作区域（排除任务栏），确保窗口不会被任务栏遮挡
 - **主线程安全**：快捷键回调中的窗口操作统一派发到主线程执行（`run_on_main_thread`），避免跨线程窗口操作导致的崩溃
-- **原生窗口定位**：使用 Windows `SetWindowPos` API 替代 Tauri `set_position`，在 `show()` 前后各调用一次确保位置生效
+- **原生窗口定位**：托盘设置入口使用 Windows `SetWindowPos` API 辅助定位，并在 `show()` 前后各调用一次确保位置生效
+- **普通唤起保留位置**：快捷键和托盘左键唤起不再每次重置到默认位置，保留用户拖动后的当前窗口位置
 
 ### 修复
 
 - **快捷键注册竞态**：修改 `set_shortcut` 为先注册新快捷键再注销旧快捷键，防止注册失败时丢失快捷键
-- **窗口位置保存**：`WindowEvent::Moved` 事件增加 500ms 防抖和 `save_position` 开关检查，避免每像素移动都写 SQLite
-- **托盘重置竞争**：托盘重置位置时设置 `suppress` 标志，防止 `Moved` 事件覆盖已清除的位置
+- **窗口位置重置**：修复普通唤起窗口时每次被重置到默认位置的问题；现在只有托盘右键菜单「设置」会重置窗口位置
 - **备忘录暗黑模式**：备忘录条目样式从硬编码颜色改为 CSS 变量，暗黑模式下正确适配
-- **插入符 (0,0) 误判**：移除 `get_caret_pos_screen` 中对 `(0,0)` 坐标的错误启发式检查
 
 ### 清理
 
 - 移除未使用的 `storageSize` 翻译键和 `getCursorPosition` 前端 API
+- 移除隐藏的保存位置/跟随模式运行时分支，`window_position` 模块仅保留设置入口默认定位与边界修正
+- 新安装首次创建数据库时写入默认设置，已有用户升级时不覆盖已保存设置
 
 ### 技术细节
 
-- 新增 `get_caret_pos_screen()` 辅助函数：通过 `GetForegroundWindow` → `GetCaretPos` → `ClientToScreen` 链获取前台窗口插入符的屏幕坐标
-- 新增 `get_work_area()` 辅助函数：使用 `MonitorFromPoint` + `GetMonitorInfoW` 获取主显示器工作区域矩形
-- 新增 `set_window_pos_native()` 辅助函数：封装 `SetWindowPos` 调用，show 前后各定位一次
-- 窗口位置通过 `WindowEvent::Moved` 事件实时保存到 SQLite `settings` 表（key: `window_pos`，格式: `"x,y"`）
-- Cargo.toml 新增 `Win32_Graphics_Gdi` feature（`GetMonitorInfoW`、`MonitorFromPoint`、`ClientToScreen` 所需）
+- 新增 `WindowPositionService::default_position()`：计算主屏右半区域中心并对工作区边界进行修正
+- 新增 `set_window_position_native()` 辅助函数：封装 `SetWindowPos` 调用，设置入口 show 前后各定位一次
+- Cargo.toml 保留 `Win32_Graphics_Gdi` feature（`GetMonitorInfoW`、`MonitorFromPoint` 所需）
 
-## v2.0.0 (2026-06-27)
+## v2.0.0 Preview (2026-06-27)
 
 ### 新功能
 

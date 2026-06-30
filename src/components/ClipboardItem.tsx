@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClipboardEntry } from '../types';
-import { getCategoryColor, getCategoryLabel, formatRelativeTime } from '../utils';
+import { getArchiveDaysRemaining, getArchiveTone, getCategoryColor, getCategoryLabel, formatRelativeTime } from '../utils';
 import { useI18n } from '../i18n';
 import { TrashIcon } from './icons/TrashIcon';
 
@@ -30,6 +30,7 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
   const isImage = entry.category === 'image';
   const isLink = entry.category === 'link';
   const hasOriginal = entry.original_content != null;
+  const archiveDaysRemaining = isArchive && entry.archived_at ? getArchiveDaysRemaining(entry.archived_at) : null;
 
   const handleOpenInBrowser = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -187,13 +188,8 @@ export default function ClipboardItem({ entry, onCopy, onDelete, onTogglePin, on
             <span className="entry-time" style={styles.time}>{formatRelativeTime(entry.created_at, t)}</span>
             {entry.pinned && !isArchive && <span style={styles.pinBadge}>{'\u{1F4CC}'}</span>}
             {isArchive && entry.archived_at && (
-              <span style={styles.archiveTimer}>
-                {(() => {
-                  const archivedDate = new Date(entry.archived_at);
-                  const expiryDate = new Date(archivedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-                  const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
-                  return t.daysRemaining(daysLeft);
-                })()}
+              <span style={{ ...styles.archiveTimer, ...styles[`archiveTimer${getArchiveTone(archiveDaysRemaining ?? 0)}`] }}>
+                {t.daysRemaining(archiveDaysRemaining ?? 0)}
               </span>
             )}
           </div>
@@ -329,11 +325,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
   archiveTimer: {
     fontSize: '10px',
-    color: '#f59e0b',
-    background: 'rgba(245,158,11,0.1)',
     padding: '1px 6px',
     borderRadius: '8px',
     fontWeight: 500,
+  },
+  archiveTimerwarning: {
+    color: '#f59e0b',
+    background: 'rgba(245,158,11,0.1)',
+  },
+  archiveTimerdanger: {
+    color: '#ef4444',
+    background: 'rgba(239,68,68,0.1)',
   },
   archiveBtn: {
     color: '#f59e0b',

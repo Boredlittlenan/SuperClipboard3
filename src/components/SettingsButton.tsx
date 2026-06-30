@@ -41,19 +41,17 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
   const [open, setOpen] = useState(false);
   const [autostart, setAutostart] = useState(false);
   const [memoEnabled, setMemoEnabledState] = useState(false);
-  const [alwaysOnTop, setAlwaysOnTopState] = useState(true);
+  const [alwaysOnTop, setAlwaysOnTopState] = useState(false);
   const [rawPreview, setRawPreviewState] = useState(false);
   const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
   const [themeAccent, setThemeAccentState] = useState('default');
-  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [autoUpdate, setAutoUpdate] = useState(true);
   const [archiveEnabled, setArchiveEnabledState] = useState(false);
-  const [followMode, setFollowModeState] = useState(true);
-  const [savePosition, setSavePositionState] = useState(false);
   const [appVersion, setAppVersion] = useState('');
   const [memoColor, setMemoColor] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [hexInput, setHexInput] = useState('');
-  const [shortcut, setShortcutState] = useState('Shift+V');
+  const [shortcut, setShortcutState] = useState('Shift+C');
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState('');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'hasUpdate' | 'failed'>('idle');
@@ -66,14 +64,16 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
     mainKey: null,
   });
 
-  const MEMO_PRESETS = ['#ec5f9e', '#2563eb', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#14b8a6', '#6366f1'];
-
-  function hexToRgba(hex: string, alpha: number): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
+  const MEMO_PRESETS = [
+    { color: '#ec5f9e', title: '樱花粉' },
+    { color: '#2563eb', title: '少年蓝' },
+    { color: '#8b5cf6', title: '友情紫' },
+    { color: '#10b981' },
+    { color: '#f59e0b' },
+    { color: '#ef4444' },
+    { color: '#14b8a6' },
+    { color: '#6366f1' },
+  ];
 
   // Listen for "open-settings" event from tray menu
   useEffect(() => {
@@ -101,7 +101,7 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
         onMemoEnabledChange?.(v === 'true');
       }).catch(console.error);
       getSetting('always_on_top').then((v) => {
-        setAlwaysOnTopState(v === null ? true : v === 'true');
+        setAlwaysOnTopState(v === null ? false : v === 'true');
       }).catch(console.error);
       getSetting('raw_preview').then((v) => {
         setRawPreviewState(v === 'true');
@@ -117,7 +117,7 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
         onThemeAccentChange?.(accent);
       }).catch(console.error);
       getSetting('auto_update').then((v) => {
-        setAutoUpdate(v === 'true');
+        setAutoUpdate(v === null ? true : v === 'true');
       }).catch(console.error);
       getSetting('archive_enabled').then((v) => {
         setArchiveEnabledState(v === 'true');
@@ -126,12 +126,6 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
       getSetting('memo_color').then((v) => {
         setMemoColor(v);
         setHexInput(v || '');
-      }).catch(console.error);
-      getSetting('follow_mode').then((v) => {
-        setFollowModeState(v !== 'false');
-      }).catch(console.error);
-      getSetting('save_position').then((v) => {
-        setSavePositionState(v === 'true');
       }).catch(console.error);
       setShowColorPicker(false);
       getVersion().then(setAppVersion).catch(console.error);
@@ -236,6 +230,7 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
     try {
       const newValue = !autostart;
       await setAutostartEnabled(newValue);
+      await setSetting('autostart', newValue ? 'true' : 'false');
       setAutostart(newValue);
     } catch (err) {
       console.error('Failed to toggle autostart:', err);
@@ -302,18 +297,6 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
     setArchiveEnabledState(newValue);
     onArchiveEnabledChange?.(newValue);
   }, [archiveEnabled, onArchiveEnabledChange]);
-
-  const handleFollowModeToggle = useCallback(async () => {
-    const newValue = !followMode;
-    await setSetting('follow_mode', newValue ? 'true' : 'false');
-    setFollowModeState(newValue);
-  }, [followMode]);
-
-  const handleSavePositionToggle = useCallback(async () => {
-    const newValue = !savePosition;
-    await setSetting('save_position', newValue ? 'true' : 'false');
-    setSavePositionState(newValue);
-  }, [savePosition]);
 
   const handleCheckUpdate = useCallback(async () => {
     setUpdateStatus('checking');
@@ -499,28 +482,6 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
             </button>
           </div>
 
-          {/* Save position */}
-          <div style={styles.compactRow} title={t.savePositionDesc}>
-            <span style={styles.rowLabel}>{t.savePosition}</span>
-            <button
-              style={{ ...styles.toggle, ...(savePosition ? styles.toggleOn : {}) }}
-              onClick={handleSavePositionToggle}
-            >
-              <div style={{ ...styles.toggleKnob, ...(savePosition ? styles.toggleKnobOn : {}) }} />
-            </button>
-          </div>
-
-          {/* Follow mode */}
-          <div style={styles.compactRow} title={t.followModeDesc}>
-            <span style={styles.rowLabel}>{t.followMode}</span>
-            <button
-              style={{ ...styles.toggle, ...(followMode ? styles.toggleOn : {}) }}
-              onClick={handleFollowModeToggle}
-            >
-              <div style={{ ...styles.toggleKnob, ...(followMode ? styles.toggleKnobOn : {}) }} />
-            </button>
-          </div>
-
           {/* Auto update */}
           <div style={styles.compactRow} title={t.autoUpdateDesc}>
             <span style={styles.rowLabel}>{t.autoUpdate}</span>
@@ -564,15 +525,16 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
                 {showColorPicker && (
                   <div style={styles.colorPicker} onClick={(e) => e.stopPropagation()}>
                     <div style={styles.colorGrid}>
-                      {MEMO_PRESETS.map((c) => (
+                      {MEMO_PRESETS.map((preset) => (
                         <button
-                          key={c}
+                          key={preset.color}
                           style={{
                             ...styles.colorPreset,
-                            background: c,
-                            ...(memoColor === c ? styles.colorPresetActive : {}),
+                            background: preset.color,
+                            ...(memoColor === preset.color ? styles.colorPresetActive : {}),
                           }}
-                          onClick={() => handleMemoColorChange(c)}
+                          title={preset.title}
+                          onClick={() => handleMemoColorChange(preset.color)}
                         />
                       ))}
                     </div>

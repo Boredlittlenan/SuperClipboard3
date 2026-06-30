@@ -65,8 +65,7 @@ impl ClipboardMonitor {
                                 // Encode image as PNG base64
                                 let img_data = encode_image_to_base64(&img);
                                 if let Some(data) = img_data {
-                                    let preview =
-                                        format!("[Image {}x{}]", img.width, img.height);
+                                    let preview = format!("[Image {}x{}]", img.width, img.height);
 
                                     let entry = ClipboardEntry {
                                         id: 0,
@@ -74,9 +73,7 @@ impl ClipboardMonitor {
                                         content_type: "image/png".to_string(),
                                         content: data,
                                         preview,
-                                        hash: Storage::hash_content(
-                                            &format!("img_bytes_{}", hash),
-                                        ),
+                                        hash: Storage::hash_content(&format!("img_bytes_{}", hash)),
                                         pinned: false,
                                         created_at: Utc::now(),
                                         original_content: None,
@@ -87,8 +84,7 @@ impl ClipboardMonitor {
                                     match storage.insert(&entry) {
                                         Ok(true) => {
                                             debug!("Captured image: {}x{}", img.width, img.height);
-                                            let _ = app_handle
-                                                .emit("clipboard-changed", &entry);
+                                            let _ = app_handle.emit("clipboard-changed", &entry);
                                         }
                                         Ok(false) => {} // duplicate
                                         Err(e) => {

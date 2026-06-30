@@ -12,24 +12,26 @@
   --code-bg: #f5f5f5;
   --danger: #ef4444;
   --success: #10b981;
-  --memo-contrast: #ec5f9e;
-  --memo-contrast-bg: rgba(236, 95, 158, 0.08);
+  --memo-contrast: #3f3f3f;
+  --memo-contrast-bg: rgba(63, 63, 63, 0.1);
+  --memo-item-hover-bg: #f5f5f5;
 }
 
 :root[data-theme="dark"],
 .app-root[data-theme="dark"] {
-  --bg: #0f0f0f;
-  --surface: #1a1a1a;
+  --bg: #181818;
+  --surface: #1e1e1e;
   --hover-bg: #252525;
   --border: #2a2a2a;
   --text-primary: #e5e5e5;
   --text-secondary: #a3a3a3;
-  --text-muted: #666666;
+  --text-muted: #a3a3a3;
   --accent: #3b82f6;
   --accent-bg: rgba(59, 130, 246, 0.16);
   --code-bg: #1e1e1e;
-  --memo-contrast: #ff85b7;
-  --memo-contrast-bg: rgba(255, 133, 183, 0.12);
+  --memo-contrast: #3f3f3f;
+  --memo-contrast-bg: rgba(63, 63, 63, 0.18);
+  --memo-item-hover-bg: #252525;
 }
 
 /* shortcut-hint keeps a fixed neutral bg regardless of accent theme */
@@ -38,14 +40,23 @@
   background: #2e2e2e;
 }
 
+:root[data-theme="dark"] .title-bar,
+:root[data-theme="dark"] .search-bar,
+:root[data-theme="dark"] .footer-bar,
+.app-root[data-theme="dark"] .title-bar,
+.app-root[data-theme="dark"] .search-bar,
+.app-root[data-theme="dark"] .footer-bar {
+  background: #181818;
+}
+
 :root[data-accent="sakura"],
 .app-root[data-accent="sakura"] {
   --accent: #ec5f9e;
   --accent-bg: rgba(236, 95, 158, 0.12);
   --hover-bg: #fff0f6;
   --code-bg: #fff7fb;
-  --memo-contrast: #2563eb;
-  --memo-contrast-bg: rgba(37, 99, 235, 0.08);
+  --memo-contrast: #3f3f3f;
+  --memo-contrast-bg: rgba(63, 63, 63, 0.1);
 }
 
 :root[data-theme="dark"][data-accent="sakura"],
@@ -54,8 +65,8 @@
   --accent-bg: rgba(255, 133, 183, 0.18);
   --hover-bg: #2a1d25;
   --code-bg: #241a20;
-  --memo-contrast: #60a5fa;
-  --memo-contrast-bg: rgba(96, 165, 250, 0.12);
+  --memo-contrast: #3f3f3f;
+  --memo-contrast-bg: rgba(63, 63, 63, 0.18);
 }
 
 /* Custom memo color overrides — higher specificity than any theme block */
@@ -220,6 +231,87 @@
   z-index: 1000;
 }
 
+/* ─── Dialog ─── */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.28);
+  -webkit-app-region: no-drag;
+}
+
+.confirm-dialog {
+  width: min(340px, 100%);
+  background: var(--bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+  padding: 14px;
+  animation: dialogIn 0.12s ease;
+}
+
+.confirm-dialog-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.confirm-dialog-message {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dialog-btn:hover {
+  background: var(--hover-bg);
+}
+
+.dialog-btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.dialog-btn-primary:hover {
+  filter: brightness(0.96);
+}
+
+.dialog-btn-danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.dialog-btn-danger:hover {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #ffffff;
+  filter: none;
+}
+
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar {
   width: 6px;
@@ -260,6 +352,17 @@
   }
 }
 
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -283,11 +386,15 @@
 
 /* ─── Entry Hover Fix (CSS :hover instead of React state) ─── */
 .clipboard-entry {
-  background: var(--surface);
+  background: #ffffff;
   transition: background 0.12s ease;
 }
 .clipboard-entry:hover {
   background: var(--hover-bg);
+}
+
+[data-theme="dark"] .clipboard-entry {
+  background: var(--surface);
 }
 .clipboard-entry .entry-actions {
   opacity: 0;
@@ -304,7 +411,7 @@
   transition: background 0.15s ease;
 }
 .memo-entry:hover {
-  background: #f5f5f5;
+  background: var(--memo-item-hover-bg);
 }
 /* Fixed text colors inside memo entries — readable on white in light mode */
 .memo-entry,
@@ -320,10 +427,10 @@
 
 /* Dark mode: use theme-aware colors for memo entries */
 [data-theme="dark"] .memo-entry {
-  background: var(--surface);
+  background: #1e1e1e;
 }
 [data-theme="dark"] .memo-entry:hover {
-  background: var(--hover-bg);
+  background: var(--memo-item-hover-bg);
 }
 [data-theme="dark"] .memo-entry,
 [data-theme="dark"] .memo-entry .memo-selectable {
@@ -349,4 +456,113 @@
 .memo-selectable {
   user-select: text;
   -webkit-user-select: text;
+}
+
+.memo-rich-editor {
+  position: relative;
+  height: 96px;
+  min-height: 76px;
+  max-height: 500px;
+  overflow-y: auto;
+  resize: vertical;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 7px 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  cursor: text;
+}
+
+.memo-rich-editor:focus {
+  border-color: var(--memo-contrast);
+  box-shadow: 0 0 0 2px var(--memo-contrast-bg);
+}
+
+.memo-rich-editor[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  left: 8px;
+  top: 7px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.memo-rich-editor .memo-editor-image {
+  display: inline-block;
+  position: relative;
+  max-width: 100%;
+  margin: 4px 6px 4px 0;
+  padding: 2px;
+  vertical-align: top;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  transition: border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+}
+
+.memo-rich-editor .memo-editor-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.memo-rich-editor .memo-editor-image-tools {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.memo-rich-editor .memo-editor-image:hover .memo-editor-image-tools,
+.memo-rich-editor .memo-editor-image.is-dragging .memo-editor-image-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.memo-rich-editor .memo-editor-image-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--memo-contrast);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.memo-rich-editor .memo-editor-image-drag {
+  cursor: grab;
+  font-size: 14px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.memo-rich-editor .memo-editor-image-delete {
+  color: #ef4444;
+}
+
+.memo-rich-editor .memo-editor-image.is-over {
+  border-color: var(--memo-contrast);
+  background: var(--memo-contrast-bg);
+}
+
+.memo-rich-editor .memo-editor-image.is-dragging {
+  opacity: 0.55;
 }

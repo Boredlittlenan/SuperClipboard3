@@ -2,23 +2,25 @@ mod autostart;
 mod classifier;
 mod clipboard;
 mod storage;
+mod window_position;
 
 use clipboard::ClipboardMonitor;
 use log::info;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
-use storage::{ClipboardEntry, QueryFilter, Storage, Memo, MemoFilter};
-use tauri::Manager;
+use storage::{ClipboardEntry, Memo, MemoFilter, QueryFilter, Storage};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::Emitter;
+use tauri::Manager;
+use window_position::{WindowPoint, WindowPositionService, WindowSize};
 
 /// Current application version
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// GitHub repository owner/name for update checks
 const GITHUB_REPO: &str = "Boredlittlenan/SuperClipboard3";
+const DEFAULT_SHORTCUT: &str = "Shift+C";
+const DEFAULT_SETTINGS_VERSION: &str = "2";
 
 #[derive(Serialize)]
 pub struct UpdateInfo {
@@ -31,10 +33,8 @@ pub struct UpdateInfo {
 /// Tauri-managed application state
 pub struct AppState {
     storage: Arc<Storage>,
-    monitor: std::sync::Mutex<ClipboardMonitor>,
+    _monitor: std::sync::Mutex<ClipboardMonitor>,
     current_shortcut: std::sync::Mutex<String>,
-    #[cfg(windows)]
-    suppress_move_save: Arc<AtomicBool>,
 }
 
 fn tray_menu_labels(language: &str) -> (&'static str, &'static str) {
@@ -61,61 +61,75 @@ fn update_tray_menu(app: &tauri::AppHandle, language: &str) -> tauri::Result<()>
 
 // ─── Position Helpers ────────────────────────────────────────────────
 
-/// Get the caret (insertion point) position in screen coordinates.
-/// Returns None if there's no caret in the foreground window.
-#[cfg(windows)]
-fn get_caret_pos_screen() -> Option<(i32, i32)> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetCaretPos};
-    use windows::Win32::Graphics::Gdi::ClientToScreen;
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() {
-            return None;
-        }
-        let mut pt = windows::Win32::Foundation::POINT { x: 0, y: 0 };
-        if GetCaretPos(&mut pt).is_err() {
-            return None;
-        }
-        if !ClientToScreen(hwnd, &mut pt).as_bool() {
-            return None;
-        }
-        Some((pt.x, pt.y))
+fn set_default_setting_if_missing(storage: &Storage, key: &str, value: &str) {
+    if matches!(storage.get_setting(key), Ok(None)) {
+        let _ = storage.set_setting(key, value);
     }
 }
 
-/// Get the primary monitor's work area (excludes taskbar).
-#[cfg(windows)]
-fn get_work_area() -> (i32, i32, i32, i32) {
-    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
-    use windows::Win32::Foundation::POINT;
-    unsafe {
-        let hmonitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
-        let mut mi = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if GetMonitorInfoW(hmonitor, &mut mi).into() {
-            let rc = mi.rcWork;
-            (rc.left, rc.top, rc.right, rc.bottom)
-        } else {
-            (0, 0, 1920, 1080) // fallback
-        }
+fn initialize_first_run_defaults(storage: &Storage) {
+    // Only run this for a newly-created database. Existing users keep their saved data/settings.
+    set_default_setting_if_missing(storage, "shortcut", DEFAULT_SHORTCUT);
+    set_default_setting_if_missing(storage, "theme_mode", "system");
+    set_default_setting_if_missing(storage, "theme_accent", "default");
+    set_default_setting_if_missing(storage, "always_on_top", "false");
+    set_default_setting_if_missing(storage, "raw_preview", "false");
+    set_default_setting_if_missing(storage, "auto_update", "true");
+    set_default_setting_if_missing(storage, "memo_enabled", "false");
+    set_default_setting_if_missing(storage, "archive_enabled", "false");
+    set_default_setting_if_missing(storage, "autostart", "true");
+    set_default_setting_if_missing(storage, "defaults_schema_version", DEFAULT_SETTINGS_VERSION);
+
+    let _ = autostart::enable();
+}
+
+fn current_window_size(window: &tauri::WebviewWindow) -> WindowSize {
+    let size = window
+        .outer_size()
+        .unwrap_or(tauri::PhysicalSize::new(420u32, 600u32));
+    WindowSize {
+        width: size.width as i32,
+        height: size.height as i32,
     }
 }
 
-/// Position the window using SetWindowPos (native Windows API).
-#[cfg(windows)]
-fn set_window_pos_native(hwnd: isize, x: i32, y: i32) {
-    use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOSIZE};
-    let _ = unsafe {
-        SetWindowPos(
-            windows::Win32::Foundation::HWND(hwnd as *mut _),
-            windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            x, y,
-            0, 0,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE,
-        )
-    };
+fn apply_window_position(window: &tauri::WebviewWindow, point: WindowPoint) {
+    #[cfg(windows)]
+    {
+        if let Ok(hwnd) = window.hwnd() {
+            if WindowPositionService::set_window_position_native(hwnd.0 as isize, point) {
+                return;
+            }
+        }
+    }
+
+    let _ = window.set_position(tauri::PhysicalPosition::new(point.x, point.y));
+}
+
+fn show_window(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    source: &'static str,
+    reset_to_default_position: bool,
+) {
+    if reset_to_default_position {
+        let point = WindowPositionService::default_position(current_window_size(window));
+        info!(
+            "[position] source={}, reset=true, x={}, y={}",
+            source, point.x, point.y
+        );
+        apply_window_position(window, point);
+    }
+
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    if reset_to_default_position {
+        let point = WindowPositionService::default_position(current_window_size(window));
+        apply_window_position(window, point);
+    }
+
+    let _ = app.emit("window-shown", source);
 }
 
 // ─── Shortcut Helpers ────────────────────────────────────────────────
@@ -124,8 +138,6 @@ fn set_window_pos_native(hwnd: isize, x: i32, y: i32) {
 fn register_toggle_shortcut(
     app: &tauri::AppHandle,
     shortcut: &str,
-    storage: Arc<Storage>,
-    suppress_move_save: Arc<AtomicBool>,
 ) -> Result<(), tauri_plugin_global_shortcut::Error> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let app = app.clone();
@@ -133,110 +145,13 @@ fn register_toggle_shortcut(
         .on_shortcut(shortcut, move |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
                 let app = app.clone();
-                let storage = storage.clone();
-                let suppress = suppress_move_save.clone();
-
                 let app_for_main = app.clone();
-                let suppress_for_main = suppress.clone();
                 let _ = app.run_on_main_thread(move || {
                     if let Some(window) = app_for_main.get_webview_window("main") {
                         if window.is_visible().unwrap_or(false) {
                             let _ = window.hide();
                         } else {
-                            let follow_mode = storage.get_setting("follow_mode").ok().flatten()
-                                .map(|v| v != "false")
-                                .unwrap_or(true);
-                            let save_position = storage.get_setting("save_position").ok().flatten()
-                                .map(|v| v == "true")
-                                .unwrap_or(false);
-                            info!("[position] follow_mode={}, save_position={}", follow_mode, save_position);
-
-                            #[cfg(windows)]
-                            {
-                                if let Ok(hwnd) = window.hwnd() {
-                                    let hwnd_raw = hwnd.0 as isize;
-                                    let (wa_left, wa_top, wa_right, wa_bottom) = get_work_area();
-                                    let wa_h = wa_bottom - wa_top;
-                                    // Window dimensions (physical pixels)
-                                    let win_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(420u32, 600u32));
-                                    let win_w = win_size.width as i32;
-                                    let win_h = win_size.height as i32;
-
-                                    let mut pos: Option<(i32, i32)> = None;
-
-                                    // 1. Follow mode: try caret position
-                                    if follow_mode {
-                                        if let Some((cx, cy)) = get_caret_pos_screen() {
-                                            info!("[position] caret found at ({}, {})", cx, cy);
-                                            // Horizontal: prefer right of caret, fallback left
-                                            let x = if cx + win_w + 10 <= wa_right {
-                                                cx + 10
-                                            } else {
-                                                (cx - win_w - 10).max(wa_left)
-                                            };
-                                            // Vertical: if caret in top half → below; else above
-                                            let y = if cy < wa_top + wa_h / 2 {
-                                                (cy + 20).min(wa_bottom - win_h)
-                                            } else {
-                                                (cy - win_h - 20).max(wa_top)
-                                            };
-                                            let x = x.clamp(wa_left, wa_right - win_w);
-                                            let y = y.clamp(wa_top, wa_bottom - win_h);
-                                            info!("[position] using caret position: ({}, {})", x, y);
-                                            pos = Some((x, y));
-                                        }
-                                    }
-
-                                    // 2. No caret or follow_mode off: saved position or default
-                                    if pos.is_none() {
-                                        if save_position {
-                                            if let Some(saved) = storage.get_setting("window_pos").ok().flatten() {
-                                                let parts: Vec<&str> = saved.split(',').collect();
-                                                if parts.len() == 2 {
-                                                    if let (Ok(sx), Ok(sy)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
-                                                        let x = sx.clamp(wa_left, wa_right - win_w);
-                                                        let y = sy.clamp(wa_top, wa_bottom - win_h);
-                                                        info!("[position] using saved position: ({}, {})", x, y);
-                                                        pos = Some((x, y));
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // 3. Default: center of right half
-                                    if pos.is_none() {
-                                        let x = (wa_left + wa_right * 3) / 4 - win_w / 2;
-                                        let x = x.clamp(wa_left, wa_right - win_w);
-                                        let y = wa_top + (wa_h - win_h) / 2;
-                                        info!("[position] using default position: ({}, {})", x, y);
-                                        pos = Some((x, y));
-                                    }
-
-                                    // Apply position before show
-                                    if let Some((x, y)) = pos {
-                                        suppress_for_main.store(true, Ordering::SeqCst);
-                                        set_window_pos_native(hwnd_raw, x, y);
-                                    }
-
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-
-                                    // Apply position again after show as fallback
-                                    if let Some((x, y)) = pos {
-                                        set_window_pos_native(hwnd_raw, x, y);
-                                    }
-                                    // Re-enable position tracking after a short delay
-                                    // to let any pending Moved events fire while suppressed
-                                    let suppress_delay = suppress_for_main.clone();
-                                    std::thread::spawn(move || {
-                                        std::thread::sleep(std::time::Duration::from_millis(200));
-                                        suppress_delay.store(false, Ordering::SeqCst);
-                                    });
-                                }
-                            }
-
-                            let _ = app_for_main.emit("window-shown", "shortcut");
+                            show_window(&app_for_main, &window, "shortcut", false);
                         }
                     }
                 });
@@ -258,7 +173,11 @@ fn get_entries(
 }
 
 #[tauri::command]
-fn delete_entry(state: tauri::State<'_, AppState>, id: i64, archive: Option<bool>) -> Result<bool, String> {
+fn delete_entry(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    archive: Option<bool>,
+) -> Result<bool, String> {
     if archive.unwrap_or(false) {
         state.storage.archive_entry(id).map_err(|e| e.to_string())
     } else {
@@ -272,24 +191,55 @@ fn toggle_pin(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String
 }
 
 #[tauri::command]
-fn update_entry(state: tauri::State<'_, AppState>, id: i64, content: String) -> Result<bool, String> {
-    state.storage.update_entry(id, &content).map_err(|e| e.to_string())
+fn update_entry(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    content: String,
+) -> Result<bool, String> {
+    state
+        .storage
+        .update_entry(id, &content)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn get_stats(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let total = state.storage.count(None).map_err(|e| e.to_string())?;
-    let text = state.storage.count(Some("text")).map_err(|e| e.to_string())?;
-    let link = state.storage.count(Some("link")).map_err(|e| e.to_string())?;
-    let image = state.storage.count(Some("image")).map_err(|e| e.to_string())?;
-    let code = state.storage.count(Some("code")).map_err(|e| e.to_string())?;
-    let email = state.storage.count(Some("email")).map_err(|e| e.to_string())?;
-    let file_path = state.storage.count(Some("file_path")).map_err(|e| e.to_string())?;
+    let text = state
+        .storage
+        .count(Some("text"))
+        .map_err(|e| e.to_string())?;
+    let link = state
+        .storage
+        .count(Some("link"))
+        .map_err(|e| e.to_string())?;
+    let image = state
+        .storage
+        .count(Some("image"))
+        .map_err(|e| e.to_string())?;
+    let code = state
+        .storage
+        .count(Some("code"))
+        .map_err(|e| e.to_string())?;
+    let email = state
+        .storage
+        .count(Some("email"))
+        .map_err(|e| e.to_string())?;
+    let file_path = state
+        .storage
+        .count(Some("file_path"))
+        .map_err(|e| e.to_string())?;
     let db_size = state.storage.db_size().map_err(|e| e.to_string())?;
     let archive = state.storage.archive_count().map_err(|e| e.to_string())?;
 
-    let clipboard_size = state.storage.clipboard_storage_size().map_err(|e| e.to_string())?;
-    let memo_size = state.storage.memo_storage_size().map_err(|e| e.to_string())?;
+    let clipboard_size = state
+        .storage
+        .clipboard_storage_size()
+        .map_err(|e| e.to_string())?;
+    let memo_size = state
+        .storage
+        .memo_storage_size()
+        .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "total": total,
@@ -308,7 +258,10 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, Str
 
 #[tauri::command]
 fn clear_unpinned(state: tauri::State<'_, AppState>, archive: Option<bool>) -> Result<u64, String> {
-    state.storage.clear_unpinned(archive.unwrap_or(false)).map_err(|e| e.to_string())
+    state
+        .storage
+        .clear_unpinned(archive.unwrap_or(false))
+        .map_err(|e| e.to_string())
 }
 
 // ─── Archive Commands ──────────────────────────────────────────
@@ -341,12 +294,18 @@ fn archive_count(state: tauri::State<'_, AppState>) -> Result<i64, String> {
 
 #[tauri::command]
 fn permanent_delete(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
-    state.storage.permanent_delete(id).map_err(|e| e.to_string())
+    state
+        .storage
+        .permanent_delete(id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn purge_old_archives(state: tauri::State<'_, AppState>, days: i64) -> Result<u64, String> {
-    state.storage.purge_old_archives(days).map_err(|e| e.to_string())
+    state
+        .storage
+        .purge_old_archives(days)
+        .map_err(|e| e.to_string())
 }
 
 /// Copy a stored entry back to the system clipboard
@@ -399,7 +358,10 @@ fn set_setting(
     key: String,
     value: String,
 ) -> Result<(), String> {
-    state.storage.set_setting(&key, &value).map_err(|e| e.to_string())?;
+    state
+        .storage
+        .set_setting(&key, &value)
+        .map_err(|e| e.to_string())?;
     if key == "language" {
         update_tray_menu(&app, &value).map_err(|e| e.to_string())?;
     }
@@ -443,11 +405,7 @@ fn set_shortcut(
     // Validate the new shortcut by trying to register it first
     if new_shortcut != old_shortcut {
         // Register new shortcut first — if this fails, old shortcut stays active
-        #[cfg(windows)]
-        register_toggle_shortcut(&app, new_shortcut.as_str(), state.storage.clone(), state.suppress_move_save.clone())
-            .map_err(|e| format!("Failed to register shortcut: {}", e))?;
-        #[cfg(not(windows))]
-        register_toggle_shortcut(&app, new_shortcut.as_str(), state.storage.clone())
+        register_toggle_shortcut(&app, new_shortcut.as_str())
             .map_err(|e| format!("Failed to register shortcut: {}", e))?;
 
         // New shortcut registered successfully, now unregister old
@@ -470,38 +428,21 @@ fn set_shortcut(
 #[tauri::command]
 fn set_always_on_top(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        window.set_always_on_top(enabled).map_err(|e| e.to_string())?;
+        window
+            .set_always_on_top(enabled)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-// ─── Window Position & Paste Commands ─────────────────────────
-
-#[derive(Serialize)]
-pub struct CursorPosition {
-    pub x: i32,
-    pub y: i32,
-}
+// ─── Paste Commands ─────────────────────────────────────────
 
 #[tauri::command]
-fn get_cursor_position() -> Result<CursorPosition, String> {
-    #[cfg(windows)]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-        let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
-        unsafe {
-            GetCursorPos(&mut point).map_err(|e| format!("GetCursorPos failed: {}", e))?;
-        }
-        Ok(CursorPosition { x: point.x, y: point.y })
-    }
-    #[cfg(not(windows))]
-    {
-        Err("Cursor position not supported on this platform".to_string())
-    }
-}
-
-#[tauri::command]
-fn paste_to_active_window(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+fn paste_to_active_window(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: i64,
+) -> Result<bool, String> {
     // Copy content to clipboard first
     let entry = state
         .storage
@@ -545,10 +486,17 @@ fn paste_to_active_window(app: tauri::AppHandle, state: tauri::State<'_, AppStat
     #[cfg(windows)]
     {
         use enigo::{Enigo, Keyboard, Settings};
-        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| format!("Enigo init failed: {:?}", e))?;
-        enigo.key(enigo::Key::Control, enigo::Direction::Press).map_err(|e| format!("Key press failed: {:?}", e))?;
-        enigo.key(enigo::Key::Unicode('v'), enigo::Direction::Click).map_err(|e| format!("Key click failed: {:?}", e))?;
-        enigo.key(enigo::Key::Control, enigo::Direction::Release).map_err(|e| format!("Key release failed: {:?}", e))?;
+        let mut enigo =
+            Enigo::new(&Settings::default()).map_err(|e| format!("Enigo init failed: {:?}", e))?;
+        enigo
+            .key(enigo::Key::Control, enigo::Direction::Press)
+            .map_err(|e| format!("Key press failed: {:?}", e))?;
+        enigo
+            .key(enigo::Key::Unicode('v'), enigo::Direction::Click)
+            .map_err(|e| format!("Key click failed: {:?}", e))?;
+        enigo
+            .key(enigo::Key::Control, enigo::Direction::Release)
+            .map_err(|e| format!("Key release failed: {:?}", e))?;
     }
 
     Ok(true)
@@ -595,8 +543,15 @@ fn update_memo(
 }
 
 #[tauri::command]
-fn delete_memo(state: tauri::State<'_, AppState>, id: i64, archive: Option<bool>) -> Result<bool, String> {
-    state.storage.delete_memo(id, archive.unwrap_or(false)).map_err(|e| e.to_string())
+fn delete_memo(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    archive: Option<bool>,
+) -> Result<bool, String> {
+    state
+        .storage
+        .delete_memo(id, archive.unwrap_or(false))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -621,7 +576,10 @@ fn reorder_memos(
     orders: Vec<ReorderItem>,
 ) -> Result<(), String> {
     let pairs: Vec<(i64, i64)> = orders.iter().map(|r| (r.id, r.sort_order)).collect();
-    state.storage.reorder_memos(&pairs).map_err(|e| e.to_string())
+    state
+        .storage
+        .reorder_memos(&pairs)
+        .map_err(|e| e.to_string())
 }
 
 // ─── Memo Archive Commands ──────────────────────────────────────
@@ -649,17 +607,26 @@ fn get_archived_memos(
 
 #[tauri::command]
 fn memo_archive_count(state: tauri::State<'_, AppState>) -> Result<i64, String> {
-    state.storage.memo_archive_count().map_err(|e| e.to_string())
+    state
+        .storage
+        .memo_archive_count()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn permanent_delete_memo(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
-    state.storage.permanent_delete_memo(id).map_err(|e| e.to_string())
+    state
+        .storage
+        .permanent_delete_memo(id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn purge_old_memo_archives(state: tauri::State<'_, AppState>, days: i64) -> Result<u64, String> {
-    state.storage.purge_old_memo_archives(days).map_err(|e| e.to_string())
+    state
+        .storage
+        .purge_old_memo_archives(days)
+        .map_err(|e| e.to_string())
 }
 
 /// Open a URL in the system default browser
@@ -696,7 +663,10 @@ async fn check_update() -> Result<UpdateInfo, String> {
         .unwrap_or("v0.0.0");
 
     // Strip leading 'v' or 'V' if present
-    let latest = tag.strip_prefix('v').or_else(|| tag.strip_prefix('V')).unwrap_or(tag);
+    let latest = tag
+        .strip_prefix('v')
+        .or_else(|| tag.strip_prefix('V'))
+        .unwrap_or(tag);
     let current = APP_VERSION;
 
     let has_update = compare_versions(latest, current);
@@ -720,11 +690,8 @@ async fn check_update() -> Result<UpdateInfo, String> {
 
 /// Compare two semver strings: returns true if `latest` > `current`
 fn compare_versions(latest: &str, current: &str) -> bool {
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('.')
-            .filter_map(|p| p.parse::<u64>().ok())
-            .collect()
-    };
+    let parse =
+        |s: &str| -> Vec<u64> { s.split('.').filter_map(|p| p.parse::<u64>().ok()).collect() };
     let a = parse(latest);
     let b = parse(current);
     for i in 0..3 {
@@ -759,82 +726,47 @@ pub fn run() {
 
             let db_path = app_dir.join("clipboard.db");
             info!("Database path: {:?}", db_path);
+            let is_new_database = !db_path.exists();
 
             let storage = Arc::new(Storage::new(&db_path).expect("Failed to initialize storage"));
+            if is_new_database {
+                initialize_first_run_defaults(storage.as_ref());
+            }
 
             // Start clipboard monitor
             let mut monitor = ClipboardMonitor::new();
             monitor.start(app.handle().clone(), storage.clone());
 
             // Read saved shortcut or use default
-            let default_shortcut = "Shift+V".to_string();
             let saved_shortcut = storage.get_setting("shortcut").ok().flatten();
-            let shortcut = saved_shortcut.unwrap_or(default_shortcut.clone());
+            let shortcut = saved_shortcut.unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
             info!("Global shortcut: {}", shortcut);
 
             // Read always-on-top setting before moving storage
-            let always_on_top = storage.get_setting("always_on_top").ok().flatten()
+            let always_on_top = storage
+                .get_setting("always_on_top")
+                .ok()
+                .flatten()
                 .map(|v| v == "true")
-                .unwrap_or(true);
+                .unwrap_or(false);
             let saved_language = storage
                 .get_setting("language")
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| "en".to_string());
 
-            let storage_for_shortcut = storage.clone();
-            let storage_for_tray = storage.clone();
-            #[cfg(windows)]
-            let suppress_move_save: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-
             app.manage(AppState {
                 storage: storage.clone(),
-                monitor: std::sync::Mutex::new(monitor),
+                _monitor: std::sync::Mutex::new(monitor),
                 current_shortcut: std::sync::Mutex::new(shortcut.clone()),
-                #[cfg(windows)]
-                suppress_move_save: suppress_move_save.clone(),
             });
 
             // Register global shortcut to show/hide window
-            #[cfg(windows)]
-            let _ = register_toggle_shortcut(&app.handle(), shortcut.as_str(), storage_for_shortcut, suppress_move_save.clone());
-            #[cfg(not(windows))]
-            let _ = register_toggle_shortcut(&app.handle(), shortcut.as_str(), storage_for_shortcut);
+            let _ = register_toggle_shortcut(&app.handle(), shortcut.as_str());
 
-            // Apply always-on-top setting and track window position for "save position" feature
+            // Apply always-on-top setting.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_always_on_top(always_on_top);
-
-                #[cfg(windows)]
-                {
-                    let storage_for_events = storage.clone();
-                    let suppress_for_events = suppress_move_save.clone();
-                    let last_save: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
-                    window.on_window_event(move |event| {
-                        if let tauri::WindowEvent::Moved(pos) = event {
-                            // Skip if programmatic move (shortcut/tray handler)
-                            if suppress_for_events.load(Ordering::SeqCst) {
-                                return;
-                            }
-                            // Only save when save_position is enabled
-                            let should_save = storage_for_events.get_setting("save_position")
-                                .ok().flatten()
-                                .map(|v| v == "true")
-                                .unwrap_or(false);
-                            if !should_save {
-                                return;
-                            }
-                            // Debounce: save at most once per 500ms
-                            let now = Instant::now();
-                            let mut last = last_save.lock().unwrap();
-                            if last.map_or(true, |t| now.duration_since(t).as_millis() > 500) {
-                                let pos_str = format!("{},{}", pos.x, pos.y);
-                                let _ = storage_for_events.set_setting("window_pos", &pos_str);
-                                *last = Some(now);
-                            }
-                        }
-                    });
-                }
             }
 
             // Set up system tray menu and click handler
@@ -843,45 +775,17 @@ pub fn run() {
                 update_tray_menu(&handle, &saved_language)?;
 
                 // Handle menu item clicks
-                let storage_tray = storage_for_tray.clone();
-                #[cfg(windows)]
-                let suppress_tray = suppress_move_save.clone();
-                tray.on_menu_event(move |app_handle, event| {
-                    match event.id().as_ref() {
-                        "settings" => {
-                            if let Some(window) = app_handle.get_webview_window("main") {
-                                // Reset position to default (right-center) and clear saved position
-                                #[cfg(windows)]
-                                {
-                                    let _ = storage_tray.set_setting("window_pos", "");
-                                    if let Ok(hwnd) = window.hwnd() {
-                                        let (wa_left, wa_top, wa_right, wa_bottom) = get_work_area();
-                                        let wa_h = wa_bottom - wa_top;
-                                        let win_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(420u32, 600u32));
-                                        let win_w = win_size.width as i32;
-                                        let win_h = win_size.height as i32;
-                                        let x = ((wa_left + wa_right * 3) / 4 - win_w / 2).clamp(wa_left, wa_right - win_w);
-                                        let y = wa_top + (wa_h - win_h) / 2;
-                                        suppress_tray.store(true, Ordering::SeqCst);
-                                        set_window_pos_native(hwnd.0 as isize, x, y);
-                                        let suppress_delay = suppress_tray.clone();
-                                        std::thread::spawn(move || {
-                                            std::thread::sleep(std::time::Duration::from_millis(200));
-                                            suppress_delay.store(false, Ordering::SeqCst);
-                                        });
-                                    }
-                                }
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                // Emit event to frontend to open settings panel
-                                let _ = app_handle.emit("open-settings", ());
-                            }
+                tray.on_menu_event(move |app_handle, event| match event.id().as_ref() {
+                    "settings" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            show_window(app_handle, &window, "settings", true);
+                            let _ = app_handle.emit("open-settings", ());
                         }
-                        "quit" => {
-                            app_handle.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app_handle.exit(0);
+                    }
+                    _ => {}
                 });
 
                 // Left-click: show/hide window
@@ -897,9 +801,7 @@ pub fn run() {
                             if window.is_visible().unwrap_or(false) {
                                 let _ = window.hide();
                             } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                let _ = handle2.emit("window-shown", "tray");
+                                show_window(&handle2, &window, "tray", false);
                             }
                         }
                     }
@@ -942,7 +844,6 @@ pub fn run() {
             permanent_delete_memo,
             purge_old_memo_archives,
             set_always_on_top,
-            get_cursor_position,
             paste_to_active_window,
             check_update,
             open_url,

@@ -43,6 +43,7 @@ export interface Translations {
   originalContent: string;
   showOriginal: string;
   hideOriginal: string;
+  dragToReorder: string;
 
   // List states
   loading: string;
@@ -65,6 +66,8 @@ export interface Translations {
   memoTagsPlaceholder: string;
   memoEmpty: string;
   memoEmptyHint: string;
+  memoShowMore: string;
+  memoShowLess: string;
   memoSetting: string;
   memoSettingDesc: string;
   memoColor: string;
@@ -156,6 +159,7 @@ export const zhCN: Translations = {
   originalContent: '原始内容',
   showOriginal: '查看原文',
   hideOriginal: '收起原文',
+  dragToReorder: '拖拽排序',
 
   loading: '加载中...',
   noEntries: '暂无剪贴板记录',
@@ -175,6 +179,8 @@ export const zhCN: Translations = {
   memoTagsPlaceholder: '添加标签，逗号分隔',
   memoEmpty: '还没有备忘录',
   memoEmptyHint: '点击新建开始记录',
+  memoShowMore: '显示更多',
+  memoShowLess: '收起',
   memoSetting: '备忘录',
   memoSettingDesc: '在标签栏显示备忘录入口',
   memoColor: '备忘录配色',
@@ -264,6 +270,7 @@ export const en: Translations = {
   originalContent: 'Original',
   showOriginal: 'Show original',
   hideOriginal: 'Hide original',
+  dragToReorder: 'Drag to reorder',
 
   loading: 'Loading...',
   noEntries: 'No clipboard entries yet',
@@ -283,6 +290,8 @@ export const en: Translations = {
   memoTagsPlaceholder: 'Tags, comma separated',
   memoEmpty: 'No memos yet',
   memoEmptyHint: 'Click to create your first memo',
+  memoShowMore: 'Show more',
+  memoShowLess: 'Show less',
   memoSetting: 'Memos',
   memoSettingDesc: 'Show memo tab in sidebar',
   memoColor: 'Memo Color',
@@ -301,8 +310,8 @@ export const en: Translations = {
   langEn: 'English',
   themeColor: 'Theme Color',
   themeColorDesc: 'Switch accent color while light/dark follows system',
-  themeDefault: 'Youth Blue',
-  themeSakura: 'Sakura Pink',
+  themeDefault: 'Blue',
+  themeSakura: 'Pink',
   themeMode: 'Theme Mode',
   themeModeDesc: 'Follow system light/dark automatically or choose manually',
   themeSystem: 'System',

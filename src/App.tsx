@@ -18,12 +18,14 @@ import {
 } from './api/clipboard';
 import { getShortcut, getSetting, checkUpdate, pasteToActiveWindow } from './api/settings';
 import { memoCount, getArchivedMemos, memoArchiveCount, unarchiveMemo, permanentDeleteMemo, purgeOldMemoArchives } from './api/memos';
-import { formatRelativeTime } from './utils';
+import { formatRelativeTime, getArchiveDaysRemaining, getArchiveTone } from './utils';
 import { I18nProvider, useI18n } from './i18n';
 import CategoryTabs from './components/CategoryTabs';
 import ClipboardList from './components/ClipboardList';
 import SettingsButton from './components/SettingsButton';
 import MemoList from './components/MemoList';
+import { renderMemoBody } from './components/MemoBody';
+import { TrashIcon } from './components/icons/TrashIcon';
 import type { ThemeMode } from './types';
 import './App.css';
 
@@ -36,6 +38,13 @@ function formatBytes(bytes: number): string {
 
 function ArchivedMemoItem({ memo, onRestore, onPermanentDelete }: { memo: Memo; onRestore: () => void; onPermanentDelete: () => void }) {
   const { t } = useI18n();
+  const archiveDaysRemaining = memo.archived_at ? getArchiveDaysRemaining(memo.archived_at) : null;
+  const archiveTone = getArchiveTone(archiveDaysRemaining ?? 0);
+  const archiveTimerStyle = {
+    warning: { color: '#f59e0b', background: 'rgba(245,158,11,0.1)' },
+    danger: { color: '#ef4444', background: 'rgba(239,68,68,0.1)' },
+  }[archiveTone];
+
   return (
     <div className="memo-entry" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -44,33 +53,36 @@ function ArchivedMemoItem({ memo, onRestore, onPermanentDelete }: { memo: Memo; 
             {memo.title || '(untitled)'}
           </span>
           <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-            <button style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontSize: '12px', cursor: 'pointer', padding: '0 4px' }} onClick={onRestore} title={t.restore}>
-              {'\u21A9\uFE0F'}
+            <button style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 4, background: 'var(--surface)', color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer' }} onClick={onRestore} title={t.restore}>
+              {'\u21A9'}
             </button>
-            <button style={{ border: 'none', background: 'transparent', color: '#ef4444', fontSize: '12px', cursor: 'pointer', padding: '0 4px' }} onClick={onPermanentDelete} title={t.permanentDelete}>
-              {'\u2716'}
+            <button style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 4, background: 'var(--surface)', color: '#ef4444', fontSize: 11, cursor: 'pointer' }} onClick={onPermanentDelete} title={t.permanentDelete}>
+              <TrashIcon />
             </button>
           </div>
         </div>
-        <p className="memo-selectable memo-preview" style={{ fontSize: '13px', color: '#525252', margin: 0, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>
-          {memo.body.length > 100 ? memo.body.slice(0, 100) + '...' : memo.body || '\u00A0'}
-        </p>
+        <div className="memo-selectable memo-preview" style={{ fontSize: '13px', color: '#525252', margin: 0, lineHeight: 1.4, maxHeight: 64, overflow: 'hidden' }}>
+          {renderMemoBody(memo.body, 100, 96)}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
           <span className="memo-time" style={{ fontSize: '11px', color: '#999999' }}>{formatRelativeTime(memo.created_at, t)}</span>
-          {memo.archived_at && (
-            <span style={{ fontSize: '10px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '1px 6px', borderRadius: '8px', fontWeight: 500 }}>
-              {(() => {
-                const archivedDate = new Date(memo.archived_at!);
-                const expiryDate = new Date(archivedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-                const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
-                return t.daysRemaining(daysLeft);
-              })()}
+          {archiveDaysRemaining !== null && (
+            <span style={{ fontSize: '10px', ...archiveTimerStyle, padding: '1px 6px', borderRadius: '8px', fontWeight: 500 }}>
+              {t.daysRemaining(archiveDaysRemaining)}
             </span>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+interface ConfirmDialogState {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  tone?: 'danger' | 'normal';
+  resolve: (confirmed: boolean) => void;
 }
 
 function AppContent() {
@@ -81,7 +93,7 @@ function AppContent() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<number | null>(null);
-  const [currentShortcut, setCurrentShortcut] = useState('Ctrl+Shift+V');
+  const [currentShortcut, setCurrentShortcut] = useState('Shift+C');
   const [memoEnabled, setMemoEnabled] = useState(false);
   const [memoCountState, setMemoCountState] = useState<number | null>(null);
   const [memoListCount, setMemoListCount] = useState<number>(0);
@@ -99,6 +111,7 @@ function AppContent() {
   const [archivedMemos, setArchivedMemos] = useState<Memo[]>([]);
   const [memoArchiveCountState, setMemoArchiveCountState] = useState<number>(0);
   const [openedViaShortcut, setOpenedViaShortcut] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   // Fetch current shortcut on mount
   useEffect(() => {
@@ -187,7 +200,7 @@ function AppContent() {
   // Auto-check for updates on startup if enabled
   useEffect(() => {
     getSetting('auto_update').then((v) => {
-      if (v === 'true') {
+      if (v === null || v === 'true') {
         checkUpdate().catch(() => {}); // silent check
       }
     }).catch(console.error);
@@ -337,6 +350,28 @@ function AppContent() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  useEffect(() => {
+    if (!confirmDialog) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        confirmDialog.resolve(false);
+        setConfirmDialog(null);
+      }
+      if (e.key === 'Enter') {
+        confirmDialog.resolve(true);
+        setConfirmDialog(null);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [confirmDialog]);
+
+  const requestConfirm = useCallback((dialog: Omit<ConfirmDialogState, 'resolve'>) => {
+    return new Promise<boolean>((resolve) => {
+      setConfirmDialog({ ...dialog, resolve });
+    });
+  }, []);
+
   // Actions
   const handleCopy = useCallback(async (id: number) => {
     try {
@@ -411,7 +446,13 @@ function AppContent() {
 
   const handlePermanentDelete = useCallback(
     async (id: number) => {
-      if (!confirm(t.permanentDeleteConfirm)) return;
+      const confirmed = await requestConfirm({
+        title: t.permanentDelete,
+        message: t.permanentDeleteConfirm,
+        confirmLabel: t.permanentDelete,
+        tone: 'danger',
+      });
+      if (!confirmed) return;
       try {
         await permanentDelete(id);
         setEntries((prev) => prev.filter((e) => e.id !== id));
@@ -421,7 +462,7 @@ function AppContent() {
         console.error('Failed to permanently delete:', err);
       }
     },
-    [fetchStats, fetchArchiveCount, t]
+    [fetchStats, fetchArchiveCount, requestConfirm, t]
   );
 
   const handleMemoRestore = useCallback(
@@ -440,7 +481,13 @@ function AppContent() {
 
   const handleMemoPermanentDelete = useCallback(
     async (id: number) => {
-      if (!confirm(t.permanentDeleteConfirm)) return;
+      const confirmed = await requestConfirm({
+        title: t.permanentDelete,
+        message: t.permanentDeleteConfirm,
+        confirmLabel: t.permanentDelete,
+        tone: 'danger',
+      });
+      if (!confirmed) return;
       try {
         await permanentDeleteMemo(id);
         setArchivedMemos((prev) => prev.filter((m) => m.id !== id));
@@ -449,11 +496,17 @@ function AppContent() {
         console.error('Failed to permanently delete memo:', err);
       }
     },
-    [fetchMemoArchiveCount, t]
+    [fetchMemoArchiveCount, requestConfirm, t]
   );
 
   const handleClear = useCallback(async () => {
-    if (!confirm(t.clearConfirm)) return;
+    const confirmed = await requestConfirm({
+      title: t.clearHistory,
+      message: t.clearConfirm,
+      confirmLabel: t.clearHistory,
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await clearUnpinned(archiveEnabled || undefined);
       fetchEntries();
@@ -462,7 +515,7 @@ function AppContent() {
     } catch (err) {
       console.error('Failed to clear:', err);
     }
-  }, [fetchEntries, fetchStats, fetchArchiveCount, archiveEnabled, t]);
+  }, [fetchEntries, fetchStats, fetchArchiveCount, archiveEnabled, requestConfirm, t]);
 
   // Fetch archived memos when archive tab is active
   useEffect(() => {
@@ -547,7 +600,7 @@ function AppContent() {
 
       {/* Main content: memo list or clipboard list */}
       {activeTab === 'memo' ? (
-        <MemoList searchQuery={searchQuery} rawPreview={rawPreview} archiveEnabled={archiveEnabled} onCountChange={handleMemoCountChange} onArchiveCountChange={setMemoArchiveCountState} />
+        <MemoList searchQuery={searchQuery} archiveEnabled={archiveEnabled} onCountChange={handleMemoCountChange} onArchiveCountChange={setMemoArchiveCountState} />
       ) : activeTab === 'archive' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Archive sub-tabs */}
@@ -660,6 +713,41 @@ function AppContent() {
       {/* Copied toast */}
       {copied !== null && (
         <div className="toast">{t.copied}</div>
+      )}
+
+      {confirmDialog && (
+        <div
+          className="dialog-backdrop"
+          onMouseDown={() => {
+            confirmDialog.resolve(false);
+            setConfirmDialog(null);
+          }}
+        >
+          <div className="confirm-dialog" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="confirm-dialog-title">{confirmDialog.title}</div>
+            <div className="confirm-dialog-message">{confirmDialog.message}</div>
+            <div className="confirm-dialog-actions">
+              <button
+                className="dialog-btn"
+                onClick={() => {
+                  confirmDialog.resolve(false);
+                  setConfirmDialog(null);
+                }}
+              >
+                {t.cancel}
+              </button>
+              <button
+                className={`dialog-btn dialog-btn-primary ${confirmDialog.tone === 'danger' ? 'dialog-btn-danger' : ''}`}
+                onClick={() => {
+                  confirmDialog.resolve(true);
+                  setConfirmDialog(null);
+                }}
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

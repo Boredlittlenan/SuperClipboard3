@@ -31,8 +31,8 @@ pub fn enable() -> Result<(), String> {
         use winreg::enums::HKEY_CURRENT_USER;
         use winreg::RegKey;
 
-        let exe_path = std::env::current_exe()
-            .map_err(|e| format!("Failed to get executable path: {}", e))?;
+        let exe_path =
+            std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
 
         let exe_str = exe_path
             .to_str()

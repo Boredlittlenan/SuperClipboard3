@@ -1,43 +1,88 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type React from 'react';
 import type { Memo } from '../types';
 import { getMemos, createMemo, updateMemo, deleteMemo, toggleMemoPin, reorderMemos, archiveMemo, memoArchiveCount } from '../api/memos';
 import { useI18n } from '../i18n';
 import { formatRelativeTime } from '../utils';
 import { TrashIcon } from './icons/TrashIcon';
+import MemoRichEditor from './MemoRichEditor';
+import {
+  hasMemoImage,
+  parseMemoBody,
+  renderMemoBody,
+} from './MemoBody';
 
-// Render memo body with embedded markdown images
-const IMG_RE = /!\[image\]\((data:image\/[^)]+)\)/g;
-function renderMemoBody(body: string): React.ReactNode {
-  if (!body) return '\u00A0';
-  const truncated = body.length > 300 ? body.slice(0, 300) + '...' : body;
-  const parts = truncated.split(IMG_RE);
-  if (parts.length === 1) return truncated;
-  return parts.map((part, i) =>
-    i % 2 === 1
-      ? <img key={i} src={part} alt="memo" style={{ maxWidth: '100%', maxHeight: 120, borderRadius: 4, margin: '4px 0', display: 'block' }} />
-      : part ? <span key={i}>{part}</span> : null
-  );
+const MEMO_COLLAPSE_TEXT_LIMIT = 300;
+const MEMO_COLLAPSE_LINE_LIMIT = 5;
+
+function isMemoBodyCollapsible(body: string): boolean {
+  if (!body) return false;
+  const blocks = parseMemoBody(body);
+  const textLength = blocks.reduce((sum, block) => sum + (block.type === 'text' ? block.text.length : 0), 0);
+  const lineCount = blocks.reduce((sum, block) => sum + (block.type === 'text' ? block.text.split('\n').length : 0), 0);
+  return textLength > MEMO_COLLAPSE_TEXT_LIMIT || lineCount > MEMO_COLLAPSE_LINE_LIMIT || hasMemoImage(body);
+}
+
+function getMemoEditorHeight(body: string): number {
+  const blocks = parseMemoBody(body);
+  const text = blocks.filter(block => block.type === 'text').map(block => block.text).join('');
+  const lineCount = text.split('\n').length;
+  const imageCount = blocks.filter(block => block.type === 'image').length;
+  if (text.length > 1600 || lineCount > 28 || imageCount >= 3) return 400;
+  if (text.length > 700 || lineCount > 12 || imageCount > 0) return 300;
+  return 120;
+}
+
+function splitTags(tags: string): string[] {
+  return tags
+    .split(',')
+    .map(tag => tag.trim())
+    .filter(Boolean);
+}
+
+function mergeTags(manualTags: string, autoTags: string[]): string {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const tag of [...splitTags(manualTags), ...autoTags]) {
+    const key = tag.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(tag);
+  }
+  return merged.join(',');
+}
+
+function inferMemoTags(title: string, body: string, labels: { image: string; email: string; path: string; link: string; code: string }): string[] {
+  const content = `${title}\n${body}`;
+  const tags: string[] = [];
+  if (hasMemoImage(body)) tags.push(labels.image);
+  if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(content)) tags.push(labels.email);
+  if (/(?:[A-Za-z]:\\|\\\\[\w.-]+\\|\/(?:Users|home|var|etc|tmp|mnt|Volumes)\/|\.\/|\.\.\/)[^\s]+/.test(content)) tags.push(labels.path);
+  if (/https?:\/\/[^\s]+|www\.[^\s]+/i.test(content)) tags.push(labels.link);
+  if (/(?:function\s+\w+|const\s+\w+\s*=|let\s+\w+\s*=|class\s+\w+|import\s+.+from|```|<\/?[a-z][\s\S]*>)/i.test(content)) tags.push(labels.code);
+  return tags;
 }
 
 interface Props {
   searchQuery: string;
-  rawPreview?: boolean;
   archiveEnabled?: boolean;
   onCountChange?: (count: number) => void;
   onArchiveCountChange?: (count: number) => void;
 }
 
-export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCountChange, onArchiveCountChange }: Props) {
+export default function MemoList({ searchQuery, archiveEnabled, onCountChange, onArchiveCountChange }: Props) {
   const { t } = useI18n();
   const [memos, setMemos] = useState<Memo[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<{ title: string; body: string; tags: string } | null>(null);
+  const [savingMemo, setSavingMemo] = useState(false);
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
+  const [expandedMemoIds, setExpandedMemoIds] = useState<Set<number>>(() => new Set());
 
   const editingItemRef = useRef<HTMLDivElement>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const editingIdRef = useRef<number | null>(null);
+  const newMemoIdRef = useRef<number | null>(null);
 
   // Keep editingIdRef in sync with editingId state
   useEffect(() => {
@@ -60,22 +105,6 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
     fetchMemos();
   }, [fetchMemos]);
 
-  // ─── Auto-save on draft change (300ms debounce) ───────────
-  useEffect(() => {
-    if (editingId === null || editDraft === null) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      updateMemo(editingId, editDraft.title, editDraft.body, editDraft.tags)
-        .then(() => {
-          setMemos(prev => prev.map(m =>
-            m.id === editingId ? { ...m, title: editDraft.title, body: editDraft.body, tags: editDraft.tags } : m
-          ));
-        })
-        .catch(err => console.error('Failed to save memo:', err));
-    }, 300);
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [editDraft, editingId]);
-
   // ─── Auto-scroll editing item into view ───────────────────
   useEffect(() => {
     if (editingId !== null && editingItemRef.current) {
@@ -95,40 +124,86 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
 
   const stopEditing = useCallback(() => {
     editingIdRef.current = null;
+    newMemoIdRef.current = null;
     setEditingId(null);
     setEditDraft(null);
+    setSavingMemo(false);
   }, []);
 
   const handleDraftChange = (field: 'title' | 'body' | 'tags', value: string) => {
     setEditDraft(prev => prev ? { ...prev, [field]: value } : null);
   };
 
-  // ─── Handle image paste in memo body ──────────────────────
-  const handleBodyPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.startsWith('image/')) {
-        e.preventDefault();
-        const file = items[i].getAsFile();
-        if (!file) continue;
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = reader.result as string;
-          const imgMarkdown = `\n![image](${base64})\n`;
-          setEditDraft(prev => {
-            if (!prev) return prev;
-            const textarea = e.target as HTMLTextAreaElement;
-            const cursor = textarea.selectionStart;
-            const before = prev.body.slice(0, cursor);
-            const after = prev.body.slice(cursor);
-            return { ...prev, body: before + imgMarkdown + after };
-          });
-        };
-        reader.readAsDataURL(file);
-        break;
+  const handleSaveEditing = useCallback(async () => {
+    const id = editingIdRef.current;
+    if (id === null || editDraft === null || savingMemo) return;
+
+    setSavingMemo(true);
+    try {
+      const finalTags = mergeTags(
+        editDraft.tags,
+        inferMemoTags(editDraft.title, editDraft.body, {
+          image: t.tabImage,
+          email: t.tabEmail,
+          path: t.tabPath,
+          link: t.tabLink,
+          code: t.tabCode,
+        })
+      );
+      const hasContent = editDraft.title.trim() || editDraft.body.trim() || editDraft.tags.trim();
+      if (!hasContent && newMemoIdRef.current === id) {
+        await deleteMemo(id);
+        setMemos(prev => prev.filter(m => m.id !== id));
+        onCountChange?.(Math.max(0, memos.length - 1));
+      } else {
+        await updateMemo(id, editDraft.title, editDraft.body, finalTags);
+        setMemos(prev => prev.map(m =>
+          m.id === id ? { ...m, title: editDraft.title, body: editDraft.body, tags: finalTags } : m
+        ));
       }
+      stopEditing();
+    } catch (err) {
+      console.error('Failed to save memo:', err);
+      setSavingMemo(false);
     }
+  }, [editDraft, memos.length, onCountChange, savingMemo, stopEditing, t]);
+
+  const handleCancelEditing = useCallback(async () => {
+    const id = editingIdRef.current;
+    if (id === null) {
+      stopEditing();
+      return;
+    }
+
+    try {
+      if (newMemoIdRef.current === id) {
+        await deleteMemo(id);
+        setMemos(prev => prev.filter(m => m.id !== id));
+        onCountChange?.(Math.max(0, memos.length - 1));
+      }
+    } catch (err) {
+      console.error('Failed to cancel memo editing:', err);
+    } finally {
+      stopEditing();
+    }
+  }, [memos.length, onCountChange, stopEditing]);
+
+  const expandMemo = useCallback((id: number) => {
+    setExpandedMemoIds(prev => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const collapseMemo = useCallback((id: number) => {
+    setExpandedMemoIds(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }, []);
 
   // ─── Create new memo (toggle editor) ───────────────────────
@@ -136,26 +211,14 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
     try {
       // Use ref for synchronous check — state is stale during rapid clicks
       if (editingIdRef.current !== null) {
-        const id = editingIdRef.current;
-        const hasContent = editDraft && (editDraft.title.trim() || editDraft.body.trim());
-        if (hasContent) {
-          // Has content — save and close
-          await updateMemo(id, editDraft!.title, editDraft!.body, editDraft!.tags);
-        } else {
-          // Empty — cancel creation, delete the memo
-          await deleteMemo(id);
-          setMemos(prev => prev.filter(m => m.id !== id));
-          onCountChange?.(memos.length - 1);
-        }
-        editingIdRef.current = null;
-        setEditingId(null);
-        setEditDraft(null);
+        await handleSaveEditing();
         return;
       }
 
       // Not editing — create new memo and start editing
       const newMemo = await createMemo('', '', '');
       setMemos(prev => [newMemo, ...prev]);
+      newMemoIdRef.current = newMemo.id;
       editingIdRef.current = newMemo.id;
       startEditing(newMemo);
     } catch (err) {
@@ -210,7 +273,9 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
     dragActiveRef.current = true;
     setDraggedId(id);
     setDragGhostPos({ x: e.clientX, y: e.clientY });
-    setDragGhostContent(memo.title || memo.body.slice(0, 40) || '(untitled)');
+    setDragGhostContent(
+      memo.title || (hasMemoImage(memo.body) ? '[image]' : memo.body.slice(0, 40)) || '(untitled)'
+    );
   }, [canDrag, memos]);
 
   useEffect(() => {
@@ -304,10 +369,9 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
     const isEditing = editingId === memo.id;
     const isDragging = draggedId === memo.id;
     const isDragOver = dragOverId === memo.id;
-
-    // Auto-size textarea rows based on body content
-    const bodyLines = editDraft ? editDraft.body.split('\n').length : 1;
-    const textareaRows = Math.min(Math.max(bodyLines, 3), 20);
+    const isExpanded = expandedMemoIds.has(memo.id);
+    const hasImages = hasMemoImage(memo.body);
+    const canExpand = !isEditing && isMemoBodyCollapsible(memo.body);
 
     return (
       <div
@@ -319,8 +383,11 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
           ...styles.memoItem,
           ...(isEditing ? styles.memoItemActive : {}),
           ...(isDragging ? styles.memoItemDragging : {}),
-          ...(isDragOver ? { borderTop: '2px solid var(--accent)' } : {}),
-          borderLeft: memo.pinned ? '3px solid var(--accent)' : '3px solid transparent',
+          ...(isDragOver ? { borderTop: '2px solid var(--memo-contrast)' } : {}),
+          borderLeft: memo.pinned ? '3px solid var(--memo-contrast)' : '3px solid transparent',
+        }}
+        onClick={() => {
+          if (!isEditing && canExpand && !isExpanded) expandMemo(memo.id);
         }}
       >
         <div style={styles.memoContent}>
@@ -331,7 +398,10 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
                 style={styles.editTitle}
                 value={editDraft.title}
                 onChange={(e) => handleDraftChange('title', e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') stopEditing(); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') void handleCancelEditing();
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void handleSaveEditing();
+                }}
                 placeholder={t.memoTitlePlaceholder}
                 autoFocus
                 onClick={(e) => e.stopPropagation()}
@@ -387,31 +457,81 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
           {/* Content area */}
           {isEditing && editDraft ? (
             <div style={styles.inlineEditor} onClick={(e) => e.stopPropagation()}>
-              <textarea
-                style={styles.editBody}
-                value={editDraft.body}
-                onChange={(e) => handleDraftChange('body', e.target.value)}
-                onPaste={handleBodyPaste}
-                onKeyDown={(e) => { if (e.key === 'Escape') stopEditing(); }}
+              <MemoRichEditor
+                body={editDraft.body}
                 placeholder={t.memoBodyPlaceholder}
-                rows={textareaRows}
-                autoFocus={!memo.title}
+                dragLabel={t.dragToReorder}
+                deleteLabel={t.delete}
+                initialHeight={getMemoEditorHeight(editDraft.body)}
+                onChange={(body) => handleDraftChange('body', body)}
+                onEscape={() => { void handleCancelEditing(); }}
+                onSave={() => { void handleSaveEditing(); }}
               />
               <input
                 style={styles.editTags}
                 value={editDraft.tags}
                 onChange={(e) => handleDraftChange('tags', e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') stopEditing(); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') void handleCancelEditing();
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void handleSaveEditing();
+                }}
                 placeholder={t.memoTagsPlaceholder}
               />
+              <div style={styles.editActions}>
+                <span style={styles.editHint}>Ctrl+Enter {t.save} / Esc {t.cancel}</span>
+                <button
+                  style={styles.cancelBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleCancelEditing();
+                  }}
+                  disabled={savingMemo}
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  style={{
+                    ...styles.saveBtn,
+                    ...(savingMemo ? styles.saveBtnDisabled : {}),
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleSaveEditing();
+                  }}
+                  disabled={savingMemo}
+                >
+                  {savingMemo ? '...' : t.save}
+                </button>
+              </div>
             </div>
           ) : (
             <>
-              {rawPreview ? (
-                <pre className="memo-selectable" style={styles.rawPreview}>{memo.body || '\u00A0'}</pre>
+              {!hasImages ? (
+                <pre
+                  className="memo-selectable"
+                  style={{
+                    ...styles.rawPreview,
+                    ...(isExpanded ? styles.rawPreviewExpanded : {}),
+                  }}
+                  onClick={(e) => {
+                    if (isExpanded) e.stopPropagation();
+                  }}
+                >
+                  {memo.body || '\u00A0'}
+                </pre>
               ) : (
-                <div className="memo-selectable memo-preview" style={styles.memoPreview}>
-                  {renderMemoBody(memo.body)}
+                <div
+                  className="memo-selectable memo-preview"
+                  style={{
+                    ...styles.memoPreview,
+                    ...(!isExpanded ? styles.memoPreviewWithImage : {}),
+                    ...(isExpanded ? styles.memoPreviewExpanded : {}),
+                  }}
+                  onClick={(e) => {
+                    if (isExpanded) e.stopPropagation();
+                  }}
+                >
+                  {renderMemoBody(memo.body, isExpanded ? 10000 : MEMO_COLLAPSE_TEXT_LIMIT, isExpanded ? 220 : 72)}
                 </div>
               )}
               {memo.tags && (
@@ -430,6 +550,21 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
                   </span>
                 )}
                 {memo.pinned && <span style={styles.pinBadge}>{'\uD83D\uDCCC'}</span>}
+                {canExpand && (
+                  <button
+                    style={styles.expandBtn}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isExpanded) {
+                        collapseMemo(memo.id);
+                      } else {
+                        expandMemo(memo.id);
+                      }
+                    }}
+                  >
+                    {isExpanded ? t.memoShowLess : t.memoShowMore}
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -473,7 +608,7 @@ export default function MemoList({ searchQuery, rawPreview, archiveEnabled, onCo
           pointerEvents: 'none',
           zIndex: 9999,
           background: 'var(--memo-contrast-bg, #f5f5f5)',
-          border: '1px solid var(--accent)',
+          border: '1px solid var(--memo-contrast)',
           borderRadius: '6px',
           padding: '6px 12px',
           fontSize: '12px',
@@ -549,11 +684,11 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'default',
   },
   memoItemActive: {
-    background: 'var(--hover-bg)',
+    background: 'var(--memo-item-hover-bg)',
   },
   memoItemDragging: {
     opacity: 0.4,
-    background: 'var(--hover-bg)',
+    background: 'var(--memo-item-hover-bg)',
   },
   memoContent: {
     display: 'flex',
@@ -618,7 +753,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   actionBtnActive: {
     opacity: 1,
-    color: 'var(--accent)',
+    color: 'var(--memo-contrast)',
   },
   deleteBtn: {
     color: '#ef4444',
@@ -634,19 +769,40 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     wordBreak: 'break-word',
   },
+  memoPreviewWithImage: {
+    maxHeight: '96px',
+  },
+  memoPreviewExpanded: {
+    maxHeight: 'none',
+    overflow: 'visible',
+  },
   rawPreview: {
     margin: 0,
     fontSize: '12px',
     lineHeight: 1.4,
     color: 'var(--text-primary)',
     fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
-    background: 'var(--hover-bg)',
     padding: '6px 8px',
     borderRadius: '4px',
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-all',
-    maxHeight: '200px',
-    overflowY: 'auto',
+    maxHeight: '88px',
+    overflowY: 'hidden',
+  },
+  rawPreviewExpanded: {
+    maxHeight: 'none',
+    overflowY: 'visible',
+  },
+  expandBtn: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    padding: 0,
+    fontSize: '11px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    lineHeight: 1.2,
+    marginLeft: 'auto',
   },
   tags: {
     display: 'flex',
@@ -658,8 +814,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'inline-block',
     padding: '1px 6px',
     borderRadius: '8px',
-    background: 'var(--hover-bg)',
-    color: 'var(--accent)',
+    background: 'var(--memo-contrast-bg)',
+    color: 'var(--memo-contrast)',
     fontSize: '10px',
     fontWeight: 500,
   },
@@ -668,6 +824,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '6px',
     marginTop: '2px',
+    flexWrap: 'wrap',
   },
   timestamp: {
     fontSize: '11px',
@@ -702,25 +859,46 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     minWidth: 0,
   },
-  editBody: {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: 'none',
-    outline: 'none',
-    background: 'transparent',
-    fontSize: '12px',
-    color: 'var(--text-primary)',
-    resize: 'vertical' as const,
-    fontFamily: 'inherit',
-    padding: '4px 0',
-    lineHeight: 1.5,
-  },
   editTags: {
     border: 'none',
     outline: 'none',
     background: 'transparent',
     fontSize: '11px',
-    color: '#8b5cf6',
+    color: 'var(--memo-contrast)',
     padding: '4px 0',
+  },
+  editActions: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '8px',
+  },
+  editHint: {
+    fontSize: '10px',
+    color: 'var(--text-muted)',
+    marginRight: 'auto',
+  },
+  saveBtn: {
+    fontSize: '12px',
+    padding: '4px 12px',
+    borderRadius: '4px',
+    border: 'none',
+    background: 'var(--memo-contrast)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  saveBtnDisabled: {
+    opacity: 0.6,
+    cursor: 'not-allowed',
+  },
+  cancelBtn: {
+    fontSize: '12px',
+    padding: '4px 12px',
+    borderRadius: '4px',
+    border: '1px solid var(--border)',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
   },
 };

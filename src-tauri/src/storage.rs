@@ -29,9 +29,9 @@ pub struct ClipboardEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_content: Option<String>, // Content before first edit (null = never edited)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<String>,       // Timestamp of last edit (null = never edited)
+    pub updated_at: Option<String>, // Timestamp of last edit (null = never edited)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub archived_at: Option<String>,      // Timestamp of archival (null = not archived)
+    pub archived_at: Option<String>, // Timestamp of archival (null = not archived)
 }
 
 /// Query filter for listing entries
@@ -156,11 +156,13 @@ impl Storage {
         )?;
 
         // Migration: add columns to existing databases (ignore error if already present)
-        let _ = conn.execute_batch("ALTER TABLE clipboard_entries ADD COLUMN original_content TEXT");
+        let _ =
+            conn.execute_batch("ALTER TABLE clipboard_entries ADD COLUMN original_content TEXT");
         let _ = conn.execute_batch("ALTER TABLE clipboard_entries ADD COLUMN updated_at TEXT");
 
         // Migration: add sort_order column to memos
-        let _ = conn.execute_batch("ALTER TABLE memos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+        let _ = conn
+            .execute_batch("ALTER TABLE memos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
         // Initialize sort_order based on current ordering (newest = highest)
         let _ = conn.execute_batch(
             "UPDATE memos SET sort_order = (
@@ -253,9 +255,7 @@ impl Storage {
              FROM clipboard_entries WHERE id = ?1",
         )?;
 
-        let entry = stmt
-            .query_row(params![id], map_row_to_entry)
-            .ok();
+        let entry = stmt.query_row(params![id], map_row_to_entry).ok();
 
         Ok(entry)
     }
@@ -329,9 +329,11 @@ impl Storage {
                 |row| row.get(0),
             )?
         } else {
-            conn.query_row("SELECT COUNT(*) FROM clipboard_entries WHERE archived_at IS NULL", [], |row| {
-                row.get(0)
-            })?
+            conn.query_row(
+                "SELECT COUNT(*) FROM clipboard_entries WHERE archived_at IS NULL",
+                [],
+                |row| row.get(0),
+            )?
         };
         Ok(count)
     }
@@ -339,10 +341,8 @@ impl Storage {
     /// Get database size in bytes (page_count * page_size)
     pub fn db_size(&self) -> Result<i64, StorageError> {
         let conn = self.conn.lock().unwrap();
-        let page_count: i64 = conn
-            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
-        let page_size: i64 = conn
-            .query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        let page_count: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let page_size: i64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
         Ok(page_count * page_size)
     }
 
@@ -406,7 +406,10 @@ impl Storage {
     }
 
     /// Query archived entries
-    pub fn query_archived(&self, filter: &QueryFilter) -> Result<Vec<ClipboardEntry>, StorageError> {
+    pub fn query_archived(
+        &self,
+        filter: &QueryFilter,
+    ) -> Result<Vec<ClipboardEntry>, StorageError> {
         let conn = self.conn.lock().unwrap();
         let mut sql = String::from("SELECT id, category, content_type, content, preview, hash, pinned, created_at, original_content, updated_at, archived_at FROM clipboard_entries WHERE archived_at IS NOT NULL");
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -496,7 +499,8 @@ impl Storage {
             sql.push_str(&format!(" OFFSET {}", offset));
         }
 
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = conn.prepare(&sql)?;
         let memos = stmt
@@ -549,7 +553,13 @@ impl Storage {
     }
 
     /// Update an existing memo (also refreshes updated_at)
-    pub fn update_memo(&self, id: i64, title: &str, body: &str, tags: &str) -> Result<bool, StorageError> {
+    pub fn update_memo(
+        &self,
+        id: i64,
+        title: &str,
+        body: &str,
+        tags: &str,
+    ) -> Result<bool, StorageError> {
         let conn = self.conn.lock().unwrap();
         let rows = conn.execute(
             "UPDATE memos SET title = ?1, body = ?2, tags = ?3, updated_at = datetime('now') WHERE id = ?4",
@@ -593,7 +603,11 @@ impl Storage {
     /// Get total memo count
     pub fn memo_count(&self) -> Result<i64, StorageError> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM memos WHERE archived_at IS NULL", [], |row| row.get(0))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM memos WHERE archived_at IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
         Ok(count)
     }
 
@@ -654,7 +668,8 @@ impl Storage {
             sql.push_str(&format!(" OFFSET {}", offset));
         }
 
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = conn.prepare(&sql)?;
         let memos = stmt
