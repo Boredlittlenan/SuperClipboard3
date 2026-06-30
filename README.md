@@ -31,7 +31,7 @@ A lightweight clipboard manager built with Rust + Tauri + React + TypeScript.
 - Custom memo color: 8 presets + HEX input, independent of theme
 - Recycle Bin: soft-delete with Recycle Bin tab split into "Clipboard" and "Memos" sub-tabs, 30-day auto-purge; disabled by default
 - Recycle Bin countdown: shows days remaining before auto-deletion with yellow badge
-- Window position: shortcut and tray-left-click restores keep the user's current dragged position; only tray context menu > Settings resets the window to the center of the primary screen's right half
+- Window position: the app starts at the same default position used by tray context menu > Settings; shortcut and tray-left-click restores keep the user's current dragged position
 - Paste to active window: click an entry after shortcut-open to auto-hide and simulate Ctrl+V paste
 - Memo drag-and-drop reordering: Pointer Events implementation, reliable in Tauri WebView2
 - One-click update check via GitHub Releases

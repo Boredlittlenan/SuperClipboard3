@@ -106,6 +106,15 @@ fn apply_window_position(window: &tauri::WebviewWindow, point: WindowPoint) {
     let _ = window.set_position(tauri::PhysicalPosition::new(point.x, point.y));
 }
 
+fn move_window_to_default_position(window: &tauri::WebviewWindow, source: &'static str) {
+    let point = WindowPositionService::default_position(current_window_size(window));
+    info!(
+        "[position] source={}, reset=true, x={}, y={}",
+        source, point.x, point.y
+    );
+    apply_window_position(window, point);
+}
+
 fn show_window(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
@@ -113,20 +122,14 @@ fn show_window(
     reset_to_default_position: bool,
 ) {
     if reset_to_default_position {
-        let point = WindowPositionService::default_position(current_window_size(window));
-        info!(
-            "[position] source={}, reset=true, x={}, y={}",
-            source, point.x, point.y
-        );
-        apply_window_position(window, point);
+        move_window_to_default_position(window, source);
     }
 
     let _ = window.show();
     let _ = window.set_focus();
 
     if reset_to_default_position {
-        let point = WindowPositionService::default_position(current_window_size(window));
-        apply_window_position(window, point);
+        move_window_to_default_position(window, source);
     }
 
     let _ = app.emit("window-shown", source);
@@ -767,6 +770,7 @@ pub fn run() {
             // Apply always-on-top setting.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_always_on_top(always_on_top);
+                move_window_to_default_position(&window, "startup");
             }
 
             // Set up system tray menu and click handler
