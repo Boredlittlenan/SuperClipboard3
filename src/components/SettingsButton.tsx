@@ -64,9 +64,10 @@ interface SettingsButtonProps {
   onThemeModeChange?: (mode: ThemeMode) => void;
   onThemeAccentChange?: (accent: string) => void;
   onArchiveEnabledChange?: (enabled: boolean) => void;
+  onVersionTitleTrigger?: (clickCount: number) => void;
 }
 
-export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, onMemoColorChange, onRawPreviewChange, onThemeModeChange, onThemeAccentChange, onArchiveEnabledChange }: SettingsButtonProps) {
+export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, onMemoColorChange, onRawPreviewChange, onThemeModeChange, onThemeAccentChange, onArchiveEnabledChange, onVersionTitleTrigger }: SettingsButtonProps) {
   const { t, locale, setLocale } = useI18n();
   const [open, setOpen] = useState(false);
   const [autostart, setAutostart] = useState(false);
@@ -390,7 +391,17 @@ export default function SettingsButton({ onShortcutChange, onMemoEnabledChange, 
           {/* Title row with version */}
           <div style={styles.panelTitle}>
             <span>{t.settings}</span>
-            {appVersion && <span style={styles.versionBadge}>v{appVersion}</span>}
+            {appVersion && (
+              <span
+                style={styles.versionBadge}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onVersionTitleTrigger?.(event.detail);
+                }}
+              >
+                v{appVersion}
+              </span>
+            )}
           </div>
 
           {/* Language section */}
@@ -709,6 +720,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     color: 'var(--text-muted)',
     fontFamily: 'monospace',
+    cursor: 'default',
+    userSelect: 'none',
   },
   section: {
     display: 'flex',

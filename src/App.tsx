@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type MouseEvent } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type { ClipboardEntry, FilterTab, QueryFilter, Stats, Memo } from './types';
 import {
@@ -123,12 +123,12 @@ function AppContent() {
     document.title = displayTitle;
   }, [displayTitle]);
 
-  const handleTitleClick = useCallback((event: MouseEvent<HTMLSpanElement>) => {
-    if (event.detail === 2) {
+  const handleVersionTitleTrigger = useCallback((clickCount: number) => {
+    if (clickCount === 2) {
       setTitleVariant('default');
-    } else if (event.detail === 3) {
+    } else if (clickCount === 3) {
       setTitleVariant('xiaonan');
-    } else if (event.detail === 5) {
+    } else if (clickCount === 5) {
       setTitleVariant('yingnan');
     }
   }, []);
@@ -569,7 +569,7 @@ function AppContent() {
       {/* Title bar (draggable, frameless window) */}
       <div data-tauri-drag-region className="title-bar">
         <div data-tauri-drag-region className="title-content">
-          <span className="title-text" onClick={handleTitleClick}>{displayTitle}</span>
+          <span className="title-text">{displayTitle}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span className="shortcut-hint">{formatShortcutLabel(currentShortcut)}</span>
             <SettingsButton
@@ -580,6 +580,7 @@ function AppContent() {
               onThemeModeChange={setThemeMode}
               onThemeAccentChange={setThemeAccent}
               onArchiveEnabledChange={setArchiveEnabled}
+              onVersionTitleTrigger={handleVersionTitleTrigger}
             />
           </div>
         </div>
