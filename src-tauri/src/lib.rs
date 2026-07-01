@@ -7,6 +7,7 @@ mod window_position;
 use clipboard::ClipboardMonitor;
 use log::info;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use storage::{ClipboardEntry, Memo, MemoFilter, QueryFilter, Storage};
@@ -46,6 +47,81 @@ fn tray_menu_labels(language: &str) -> (&'static str, &'static str) {
     }
 }
 
+fn normalize_locale(locale: &str) -> &'static str {
+    if locale.to_ascii_lowercase().starts_with("zh") {
+        "zh-CN"
+    } else {
+        "en"
+    }
+}
+
+#[cfg(windows)]
+fn detect_system_locale() -> &'static str {
+    use windows::Win32::Globalization::GetUserDefaultLocaleName;
+
+    let mut buffer = [0u16; 85];
+    let len = unsafe { GetUserDefaultLocaleName(&mut buffer) };
+    if len > 0 {
+        let locale = String::from_utf16_lossy(&buffer[..(len as usize).saturating_sub(1)]);
+        normalize_locale(&locale)
+    } else {
+        "en"
+    }
+}
+
+#[cfg(not(windows))]
+fn detect_system_locale() -> &'static str {
+    std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LC_MESSAGES"))
+        .or_else(|_| std::env::var("LANG"))
+        .map(|locale| normalize_locale(&locale))
+        .unwrap_or("en")
+}
+
+fn copy_file_if_missing(from: &Path, to: &Path) {
+    if from.exists() && !to.exists() {
+        let _ = std::fs::copy(from, to);
+    }
+}
+
+fn migrate_legacy_app_data(app_dir: &Path) {
+    let Some(parent) = app_dir.parent() else {
+        return;
+    };
+
+    let candidates = [
+        parent.join("com.superclipboard3.app"),
+        parent.join("SuperClipboard3"),
+        parent.join("superclipboard3"),
+    ];
+    let current_db = app_dir.join("clipboard.db");
+
+    if current_db.exists() {
+        return;
+    }
+
+    for legacy_dir in candidates {
+        let legacy_db = legacy_dir.join("clipboard.db");
+        if legacy_db.exists() {
+            let _ = std::fs::create_dir_all(app_dir);
+            copy_file_if_missing(&legacy_db, &current_db);
+            copy_file_if_missing(
+                &legacy_dir.join("clipboard.db-wal"),
+                &app_dir.join("clipboard.db-wal"),
+            );
+            copy_file_if_missing(
+                &legacy_dir.join("clipboard.db-shm"),
+                &app_dir.join("clipboard.db-shm"),
+            );
+            info!(
+                "Migrated legacy app data from {:?} to {:?}",
+                legacy_dir, app_dir
+            );
+            break;
+        }
+    }
+}
+
 fn update_tray_menu(app: &tauri::AppHandle, language: &str) -> tauri::Result<()> {
     if let Some(tray) = app.tray_by_id("main-tray") {
         let (settings_label, quit_label) = tray_menu_labels(language);
@@ -80,6 +156,7 @@ fn initialize_first_run_defaults(storage: &Storage) {
     set_default_setting_if_missing(storage, "memo_enabled", "false");
     set_default_setting_if_missing(storage, "archive_enabled", "false");
     set_default_setting_if_missing(storage, "autostart", "true");
+    set_default_setting_if_missing(storage, "language", detect_system_locale());
     set_default_setting_if_missing(storage, "defaults_schema_version", DEFAULT_SETTINGS_VERSION);
 
     let _ = autostart::enable();
@@ -702,7 +779,7 @@ async fn check_update() -> Result<UpdateInfo, String> {
     );
 
     let client = reqwest::Client::builder()
-        .user_agent("SuperClipboard3")
+        .user_agent("SuperClipboard")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -785,6 +862,7 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .expect("Failed to get app data directory");
+            migrate_legacy_app_data(&app_dir);
             std::fs::create_dir_all(&app_dir).expect("Failed to create app data directory");
 
             let db_path = app_dir.join("clipboard.db");
@@ -816,7 +894,7 @@ pub fn run() {
                 .get_setting("language")
                 .ok()
                 .flatten()
-                .unwrap_or_else(|| "en".to_string());
+                .unwrap_or_else(|| detect_system_locale().to_string());
 
             app.manage(AppState {
                 storage: storage.clone(),

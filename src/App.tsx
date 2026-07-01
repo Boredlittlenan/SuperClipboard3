@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type MouseEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type { ClipboardEntry, FilterTab, QueryFilter, Stats, Memo } from './types';
 import {
@@ -87,6 +87,7 @@ interface ConfirmDialogState {
 
 function AppContent() {
   const { t } = useI18n();
+  const [titleVariant, setTitleVariant] = useState<'default' | 'xiaonan' | 'yingnan'>('default');
   const [entries, setEntries] = useState<ClipboardEntry[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,6 +113,25 @@ function AppContent() {
   const [memoArchiveCountState, setMemoArchiveCountState] = useState<number>(0);
   const [openedViaShortcut, setOpenedViaShortcut] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const displayTitle = titleVariant === 'xiaonan'
+    ? '小楠の剪切板'
+    : titleVariant === 'yingnan'
+      ? '瑛楠の剪切板'
+      : t.appTitle;
+
+  useEffect(() => {
+    document.title = displayTitle;
+  }, [displayTitle]);
+
+  const handleTitleClick = useCallback((event: MouseEvent<HTMLSpanElement>) => {
+    if (event.detail === 2) {
+      setTitleVariant('default');
+    } else if (event.detail === 3) {
+      setTitleVariant('xiaonan');
+    } else if (event.detail === 5) {
+      setTitleVariant('yingnan');
+    }
+  }, []);
 
   // Fetch current shortcut on mount
   useEffect(() => {
@@ -549,7 +569,7 @@ function AppContent() {
       {/* Title bar (draggable, frameless window) */}
       <div data-tauri-drag-region className="title-bar">
         <div data-tauri-drag-region className="title-content">
-          <span className="title-text">{t.appTitle}</span>
+          <span className="title-text" onClick={handleTitleClick}>{displayTitle}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span className="shortcut-hint">{formatShortcutLabel(currentShortcut)}</span>
             <SettingsButton

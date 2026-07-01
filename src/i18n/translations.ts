@@ -121,7 +121,7 @@ export interface Translations {
 }
 
 export const zhCN: Translations = {
-  appTitle: '小楠の剪切板',
+  appTitle: '超级剪切板',
 
   searchPlaceholder: '搜索剪贴板...',
   clearSearch: '清除搜索',
@@ -232,7 +232,7 @@ export const zhCN: Translations = {
 };
 
 export const en: Translations = {
-  appTitle: 'SuperClipboard3',
+  appTitle: 'SuperClipboard',
 
   searchPlaceholder: 'Search clipboard...',
   clearSearch: 'Clear search',

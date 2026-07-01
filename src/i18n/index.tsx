@@ -3,7 +3,11 @@ import type { Locale, Translations } from './translations';
 import { translationsMap, en } from './translations';
 import { getSetting, setSetting } from '../api/settings';
 
-const DEFAULT_LOCALE: Locale = 'en';
+function detectSystemLocale(): Locale {
+  return navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
+}
+
+const DEFAULT_LOCALE: Locale = detectSystemLocale();
 const SETTING_KEY = 'language';
 
 interface I18nContextValue {
@@ -27,6 +31,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     getSetting(SETTING_KEY).then((saved) => {
       if (saved && (saved === 'zh-CN' || saved === 'en')) {
         setLocaleState(saved as Locale);
+      } else {
+        setLocaleState(detectSystemLocale());
       }
       setReady(true);
     }).catch(() => {

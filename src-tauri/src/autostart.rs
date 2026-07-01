@@ -2,7 +2,8 @@
 /// Uses the Windows registry: HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 
 const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const APP_NAME: &str = "SuperClipboard3";
+const APP_NAME: &str = "SuperClipboard";
+const LEGACY_APP_NAME: &str = "SuperClipboard3";
 
 /// Check if auto-start is currently enabled
 pub fn is_enabled() -> bool {
@@ -13,7 +14,10 @@ pub fn is_enabled() -> bool {
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         match hkcu.open_subkey_with_flags(REG_KEY, KEY_READ) {
-            Ok(key) => key.get_value::<String, _>(APP_NAME).is_ok(),
+            Ok(key) => {
+                key.get_value::<String, _>(APP_NAME).is_ok()
+                    || key.get_value::<String, _>(LEGACY_APP_NAME).is_ok()
+            }
             Err(_) => false,
         }
     }
@@ -48,6 +52,7 @@ pub fn enable() -> Result<(), String> {
 
         key.set_value(APP_NAME, &value)
             .map_err(|e| format!("Failed to set registry value: {}", e))?;
+        let _ = key.delete_value(LEGACY_APP_NAME);
 
         Ok(())
     }
@@ -72,6 +77,7 @@ pub fn disable() -> Result<(), String> {
 
         // Ignore error if value doesn't exist
         let _ = key.delete_value(APP_NAME);
+        let _ = key.delete_value(LEGACY_APP_NAME);
 
         Ok(())
     }

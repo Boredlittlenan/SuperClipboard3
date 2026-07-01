@@ -1,8 +1,9 @@
-# SuperClipboard3
+# SuperClipboard
 
 [中文文档](README.zh-CN.md)
 
 A lightweight clipboard manager built with Rust + Tauri + React + TypeScript.
+Chinese display name: `超级剪切板`.
 
 ## Features
 
@@ -14,8 +15,9 @@ A lightweight clipboard manager built with Rust + Tauri + React + TypeScript.
 - Global shortcut to show/hide window (default: Alt+X, customizable in settings)
 - Always-on-top toggle (default: off) to keep the window above others when enabled
 - System tray with context menu (open settings, quit app)
+- Single-instance launch: repeated shortcut/icon launches focus the existing app instead of creating duplicate tray icons
 - Theme mode follows the system by default, with Light / Dark / Auto segmented switching
-- Settings panel with language switching (Chinese / English)
+- Settings panel with language switching (Chinese / English); first launch follows the system language
 - Auto-start on system boot (Windows registry)
 - User preferences persisted in SQLite
 - Horizontally scrollable tab bar (mouse wheel supported)
@@ -34,6 +36,8 @@ A lightweight clipboard manager built with Rust + Tauri + React + TypeScript.
 - Window position: the app starts at the same default position used by tray context menu > Settings; shortcut and tray-left-click restores keep the user's current dragged position
 - Paste to active window: click an entry after shortcut-open to auto-hide and simulate Ctrl+V paste
 - Memo drag-and-drop reordering: Pointer Events implementation, reliable in Tauri WebView2
+- App rename migration: `SuperClipboard3` data is migrated automatically to `SuperClipboard`
+- Title easter egg: double-click the title to restore, triple-click for `小楠の剪切板`, five-click for `瑛楠の剪切板`
 - One-click update check via GitHub Releases
 
 ## Tech Stack
