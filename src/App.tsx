@@ -114,9 +114,9 @@ function AppContent() {
   const [openedViaShortcut, setOpenedViaShortcut] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const displayTitle = titleVariant === 'xiaonan'
-    ? '小楠の剪切板'
+    ? '小楠の剪贴板'
     : titleVariant === 'yingnan'
-      ? '瑛楠の剪切板'
+      ? '瑛楠の剪贴板'
       : t.appTitle;
 
   useEffect(() => {

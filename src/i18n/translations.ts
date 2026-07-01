@@ -121,7 +121,7 @@ export interface Translations {
 }
 
 export const zhCN: Translations = {
-  appTitle: '超级剪切板',
+  appTitle: '超级剪贴板',
 
   searchPlaceholder: '搜索剪贴板...',
   clearSearch: '清除搜索',

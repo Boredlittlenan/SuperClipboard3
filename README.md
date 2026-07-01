@@ -3,7 +3,7 @@
 [中文文档](README.zh-CN.md)
 
 A lightweight clipboard manager built with Rust + Tauri + React + TypeScript.
-Chinese display name: `超级剪切板`.
+Chinese display name: `超级剪贴板`.
 
 ## Features
 
@@ -37,7 +37,7 @@ Chinese display name: `超级剪切板`.
 - Paste to active window: click an entry after shortcut-open to auto-hide and simulate Ctrl+V paste
 - Memo drag-and-drop reordering: Pointer Events implementation, reliable in Tauri WebView2
 - App rename migration: `SuperClipboard3` data is migrated automatically to `SuperClipboard`
-- Title easter egg: double-click the title to restore, triple-click for `小楠の剪切板`, five-click for `瑛楠の剪切板`
+- Title easter egg: double-click the title to restore, triple-click for `小楠の剪贴板`, five-click for `瑛楠の剪贴板`
 - One-click update check via GitHub Releases
 
 ## Tech Stack
